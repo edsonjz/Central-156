@@ -186,21 +186,23 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
           },
           (payload: any) => {
             console.log('Realtime update received:', payload);
-            
+
             if (payload.eventType === 'UPDATE' && payload.new) {
-              // Atualiza o operador modificado mantendo os demais
-              setOperators(prev => 
-                prev.map(op => 
-                  op.registration === payload.new.registration
-                    ? {
-                        ...payload.new,
-                        kpis: payload.new.kpis || [],
-                        feedbacks: payload.new.feedbacks || [],
-                        documents: payload.new.documents || [],
-                        active: payload.new.active ?? true
-                      }
-                    : op
-                )
+              setOperators(prev =>
+                prev.map(op => {
+                  if (op.registration === payload.new.registration) {
+                    // Mescla os dados recebidos com os dados existentes para evitar perda de campos
+                    return {
+                      ...op,
+                      ...payload.new,
+                      kpis: payload.new.kpis || op.kpis || [],
+                      feedbacks: payload.new.feedbacks || op.feedbacks || [],
+                      documents: payload.new.documents || op.documents || [],
+                      active: payload.new.active ?? op.active ?? true
+                    };
+                  }
+                  return op;
+                })
               );
             } else if (payload.eventType === 'INSERT' && payload.new) {
               // Adiciona novo operador se não existir
@@ -219,7 +221,7 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
               });
             } else if (payload.eventType === 'DELETE' && payload.old) {
               // Remove operador excluído
-              setOperators(prev => 
+              setOperators(prev =>
                 prev.filter(op => op.registration !== payload.old.registration)
               );
             }
@@ -237,34 +239,24 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
   // Função para atualizar operadores (Enviando para Supabase)
   const handleUpdateOperators = useCallback(async (newOpsOrFn: Operator[] | ((prev: Operator[]) => Operator[])) => {
     let updatedOps: Operator[];
+    let oldOps = operators;
 
-    // Calcula o novo estado
     if (typeof newOpsOrFn === 'function') {
       updatedOps = newOpsOrFn(operators);
     } else {
       updatedOps = newOpsOrFn;
     }
 
-    // Atualiza UI Local
     setOperators(updatedOps);
 
-    // Atualiza Supabase
     if (supabase && updatedOps.length > 0) {
       try {
         if (isAdmin) {
-          // Supervisor salva tudo (upsert em lote)
-          // onConflict: 'registration' garante que atualize baseado na matrícula
           const { error } = await supabase.from('operators').upsert(updatedOps, { onConflict: 'registration' });
           if (error) throw error;
         } else {
-          // Operador salva APENAS a si mesmo
-          // Encontra o registro do próprio usuário na lista atualizada
           const myRecord = updatedOps.find(op => op.user_id === user?.id);
-
           if (myRecord && user?.id) {
-            // Usamos UPDATE em vez de UPSERT para o operador
-            // Isso evita erros de permissão de INSERT se o RLS for restritivo
-            // Filtramos explicitamente pelo user_id para garantir segurança
             const { error } = await supabase
               .from('operators')
               .update(myRecord)
@@ -272,24 +264,23 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
 
             if (error) {
               console.error("Erro ao salvar dados do operador:", JSON.stringify(error, null, 2));
-              if (error.code === '42501') {
-                alert("Erro de Permissão: Você não tem permissão para salvar esta alteração. Verifique as políticas RLS.");
-              } else {
-                alert(`Erro ao salvar: ${error.message || 'Erro desconhecido'}`);
-              }
+              alert(`Erro ao salvar: ${error.message || 'Erro desconhecido'}`);
+              setOperators(oldOps); // Reverte em caso de erro
             }
           }
         }
       } catch (e: any) {
         console.error("Erro de sincronização:", e);
-        if (e?.code === '42501') {
-          alert("Erro de Permissão (RLS). Verifique se seu usuário tem permissão.");
-        } else {
-          alert(`Erro ao sincronizar dados: ${e.message}`);
-        }
+        setOperators(oldOps); // Reverte
+        alert(`Erro ao sincronizar dados: ${e.message}`);
       }
     }
   }, [operators, supabase, isAdmin, user]);
+
+  const unreadCount = operators.reduce((acc, op) => {
+    const opUnread = op.feedbacks?.filter(f => f.operatorResponse && f.isRead === false).length || 0;
+    return acc + opUnread;
+  }, 0);
 
   const handleUpdateGoals = async (newGoals: TeamGoals) => {
     setGoals(newGoals);
@@ -332,8 +323,11 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
             {/* Links Exclusivos Supervisor */}
             {isAdmin && (
               <>
-                <Link to="/operators" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                <Link to="/operators" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors relative">
                   <Users size={20} /> Equipe
+                  {unreadCount > 0 && (
+                    <span className="ml-auto flex h-2 w-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></span>
+                  )}
                 </Link>
                 <Link to="/pending" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
                   <AlertCircle size={20} /> Pendências

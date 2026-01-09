@@ -31,6 +31,7 @@ export interface Feedback {
   supervisorName: string;
   comment: string;
   operatorResponse?: string;
+  isRead?: boolean; // Novo campo para alertas visuais
   actionPlan?: string;
 }
 
