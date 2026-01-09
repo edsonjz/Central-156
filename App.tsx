@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { HashRouter, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom';
-import { 
-  Users, 
-  LayoutDashboard, 
-  TrendingUp, 
-  Settings, 
-  Menu, 
-  ShieldCheck, 
+import {
+  Users,
+  LayoutDashboard,
+  TrendingUp,
+  Settings,
+  Menu,
+  ShieldCheck,
   Monitor,
   AlertCircle,
   LogOut,
@@ -53,7 +53,7 @@ const AppContent: React.FC = () => {
   const [operators, setOperators] = useState<Operator[]>([]);
   const [goals, setGoals] = useState<TeamGoals>(INITIAL_GOALS);
   const [isDataLoading, setIsDataLoading] = useState(true);
-  const [systemError, setSystemError] = useState<{title: string, msg: string, fix?: string} | null>(null);
+  const [systemError, setSystemError] = useState<{ title: string, msg: string, fix?: string } | null>(null);
 
   // Carregar dados (Respeitando RLS via Supabase)
   useEffect(() => {
@@ -68,28 +68,28 @@ const AppContent: React.FC = () => {
           .from('operators')
           .select('*')
           .order('name');
-        
+
         let loadedOps: Operator[] = [];
 
         if (!opsError && opsData) {
           // Sanitização para garantir que arrays existam mesmo se o JSON for null
           loadedOps = opsData.map((op: any) => ({
-             ...op,
-             kpis: op.kpis || [],
-             feedbacks: op.feedbacks || [],
-             documents: op.documents || [],
-             active: op.active ?? true
+            ...op,
+            kpis: op.kpis || [],
+            feedbacks: op.feedbacks || [],
+            documents: op.documents || [],
+            active: op.active ?? true
           }));
-        } 
-        
+        }
+
         // Fallback Crítico: Se RLS retornou vazio, mas temos um perfil carregado no Context (via auto-link), usamos ele.
         // Isso resolve o problema de tela branca logo após o primeiro login do operador.
         if ((!loadedOps || loadedOps.length === 0) && userProfile && !isAdmin) {
-           loadedOps = [userProfile];
+          loadedOps = [userProfile];
         }
 
         if (loadedOps.length > 0) {
-           setOperators(loadedOps);
+          setOperators(loadedOps);
         } else if (opsError) {
           // Tratamento de Erros Específicos
           if (opsError?.code === '42P17') {
@@ -144,9 +144,9 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
               msg: "A tabela 'operators' não foi encontrada. Verifique se você rodou o script de criação do banco de dados."
             });
           } else {
-             console.error("Erro ao carregar operadores (Supabase):", JSON.stringify(opsError, null, 2));
-             // Fallback para dados locais se for erro de conexão
-             setOperators(INITIAL_OPERATORS); 
+            console.error("Erro ao carregar operadores (Supabase):", JSON.stringify(opsError, null, 2));
+            // Fallback para dados locais se for erro de conexão
+            setOperators(INITIAL_OPERATORS);
           }
         }
 
@@ -156,7 +156,7 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
           .select('value')
           .eq('key', 'metas')
           .single();
-        
+
         if (goalsData?.value) {
           setGoals(goalsData.value);
         }
@@ -170,19 +170,19 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
     };
 
     loadData();
-  }, [supabase, user, userProfile]); 
+  }, [supabase, user, userProfile]);
 
   // Função para atualizar operadores (Enviando para Supabase)
   const handleUpdateOperators = useCallback(async (newOpsOrFn: Operator[] | ((prev: Operator[]) => Operator[])) => {
     let updatedOps: Operator[];
-    
+
     // Calcula o novo estado
     if (typeof newOpsOrFn === 'function') {
       updatedOps = newOpsOrFn(operators);
     } else {
       updatedOps = newOpsOrFn;
     }
-    
+
     // Atualiza UI Local
     setOperators(updatedOps);
 
@@ -198,32 +198,32 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
           // Operador salva APENAS a si mesmo
           // Encontra o registro do próprio usuário na lista atualizada
           const myRecord = updatedOps.find(op => op.user_id === user?.id);
-          
+
           if (myRecord && user?.id) {
-             // Usamos UPDATE em vez de UPSERT para o operador
-             // Isso evita erros de permissão de INSERT se o RLS for restritivo
-             // Filtramos explicitamente pelo user_id para garantir segurança
-             const { error } = await supabase
-               .from('operators')
-               .update(myRecord)
-               .eq('user_id', user.id);
-             
-             if (error) {
-               console.error("Erro ao salvar dados do operador:", JSON.stringify(error, null, 2));
-               if (error.code === '42501') {
-                 alert("Erro de Permissão: Você não tem permissão para salvar esta alteração. Verifique as políticas RLS.");
-               } else {
-                 alert(`Erro ao salvar: ${error.message || 'Erro desconhecido'}`);
-               }
-             }
+            // Usamos UPDATE em vez de UPSERT para o operador
+            // Isso evita erros de permissão de INSERT se o RLS for restritivo
+            // Filtramos explicitamente pelo user_id para garantir segurança
+            const { error } = await supabase
+              .from('operators')
+              .update(myRecord)
+              .eq('user_id', user.id);
+
+            if (error) {
+              console.error("Erro ao salvar dados do operador:", JSON.stringify(error, null, 2));
+              if (error.code === '42501') {
+                alert("Erro de Permissão: Você não tem permissão para salvar esta alteração. Verifique as políticas RLS.");
+              } else {
+                alert(`Erro ao salvar: ${error.message || 'Erro desconhecido'}`);
+              }
+            }
           }
         }
       } catch (e: any) {
         console.error("Erro de sincronização:", e);
         if (e?.code === '42501') {
-            alert("Erro de Permissão (RLS). Verifique se seu usuário tem permissão.");
+          alert("Erro de Permissão (RLS). Verifique se seu usuário tem permissão.");
         } else {
-            alert(`Erro ao sincronizar dados: ${e.message}`);
+          alert(`Erro ao sincronizar dados: ${e.message}`);
         }
       }
     }
@@ -240,6 +240,14 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
 
   return (
     <div className="min-h-screen flex bg-gray-50">
+      {/* Overlay para fechar menu no mobile */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar Dinâmica */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white transform transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="p-6 flex flex-col h-full">
@@ -252,43 +260,43 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
               </p>
             </div>
           </div>
-          
+
           <nav className="flex-1 space-y-1">
             {/* Links Comuns */}
-            <Link to="/" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
-              <LayoutDashboard size={20}/> Dashboard
+            <Link to="/" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
+              <LayoutDashboard size={20} /> Dashboard
             </Link>
-            
+
             {/* Links Exclusivos Supervisor */}
             {isAdmin && (
               <>
-                <Link to="/operators" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
-                  <Users size={20}/> Equipe
+                <Link to="/operators" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                  <Users size={20} /> Equipe
                 </Link>
-                <Link to="/pending" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
-                  <AlertCircle size={20}/> Pendências 
+                <Link to="/pending" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                  <AlertCircle size={20} /> Pendências
                   {pendingCount > 0 && <span className="ml-auto bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">{pendingCount}</span>}
                 </Link>
-                <Link to="/tv-mode" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
-                  <Monitor size={20}/> Modo TV
+                <Link to="/tv-mode" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                  <Monitor size={20} /> Modo TV
                 </Link>
-                <Link to="/settings" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
-                  <Settings size={20}/> Configurações
+                <Link to="/settings" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                  <Settings size={20} /> Configurações
                 </Link>
               </>
             )}
 
             {/* Links Exclusivos Operador */}
             {!isAdmin && (
-               <Link to="/my-profile" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
-                 <UserCircle size={20}/> Meus Indicadores
-               </Link>
+              <Link to="/my-profile" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                <UserCircle size={20} /> Meus Indicadores
+              </Link>
             )}
 
             {/* Link Comum (Indicadores - com filtro interno) */}
             {isAdmin && (
-              <Link to="/indicators" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
-                <TrendingUp size={20}/> Indicadores Consolidados
+              <Link to="/indicators" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                <TrendingUp size={20} /> Indicadores Consolidados
               </Link>
             )}
           </nav>
@@ -305,19 +313,19 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
       <main className="flex-1 lg:ml-64 flex flex-col min-w-0">
         <header className="h-16 bg-white border-b flex items-center justify-between px-8 sticky top-0 z-30">
           <div className="flex items-center gap-4">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="lg:hidden p-2"><Menu size={24}/></button>
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="lg:hidden p-2"><Menu size={24} /></button>
           </div>
           <div className="flex items-center gap-4">
-             <div className="text-right hidden sm:block">
-               <p className="text-xs font-bold text-gray-900">
-                 {/* Prioriza nome do perfil carregado, depois metadata, depois email */}
-                 {userProfile?.name || user?.user_metadata?.name || user?.email || 'Usuário'}
-               </p>
-               <p className="text-[10px] font-bold text-gray-400 uppercase">{userRole}</p>
-             </div>
-             <div className="w-9 h-9 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-bold">
-               {userProfile?.name ? userProfile.name.charAt(0) : (user?.email?.charAt(0).toUpperCase() || 'U')}
-             </div>
+            <div className="text-right hidden sm:block">
+              <p className="text-xs font-bold text-gray-900">
+                {/* Prioriza nome do perfil carregado, depois metadata, depois email */}
+                {userProfile?.name || user?.user_metadata?.name || user?.email || 'Usuário'}
+              </p>
+              <p className="text-[10px] font-bold text-gray-400 uppercase">{userRole}</p>
+            </div>
+            <div className="w-9 h-9 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-bold">
+              {userProfile?.name ? userProfile.name.charAt(0) : (user?.email?.charAt(0).toUpperCase() || 'U')}
+            </div>
           </div>
         </header>
 
@@ -347,7 +355,7 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
         <div className="p-4 lg:p-8 flex-1 overflow-x-hidden">
           <Routes>
             <Route path="/" element={<Dashboard operators={operators} goals={goals} />} />
-            
+
             {/* Rotas Supervisor */}
             {isAdmin && (
               <>
@@ -355,7 +363,7 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
                 <Route path="/operator/:id" element={<OperatorDetail operators={operators} onUpdate={handleUpdateOperators} userRole={userRole!} goals={goals} />} />
                 <Route path="/indicators" element={<Indicators operators={operators} goals={goals} userRole={userRole!} />} />
                 <Route path="/pending" element={<PendingIndicators operators={operators} onUpdate={handleUpdateOperators} userRole={userRole!} />} />
-                <Route path="/settings" element={<SettingsPage goals={goals} onUpdateGoals={handleUpdateGoals} cloudConfig={null} onUpdateCloudConfig={()=>{}} />} />
+                <Route path="/settings" element={<SettingsPage goals={goals} onUpdateGoals={handleUpdateGoals} cloudConfig={null} onUpdateCloudConfig={() => { }} />} />
               </>
             )}
 
@@ -366,7 +374,7 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
                 <Route path="/operator/:id" element={<OperatorDetail operators={operators} onUpdate={handleUpdateOperators} userRole={userRole!} goals={goals} />} />
               </>
             )}
-            
+
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
