@@ -71,17 +71,18 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
       const monthKpis = activeOperators.flatMap(o => o.kpis.filter(k => k.month === monthKey));
       const stats = calculateAverageKPIs(monthKpis);
 
-      // Converte TMA de HH:MM:SS para minutos para o gráfico
-      const tmaMinutes = stats.tma ? (() => {
+      // Converte TMA de HH:MM:SS para segundos para o gráfico (para ter uma escala numérica)
+      const tmaSeconds = stats.tma ? (() => {
         const parts = stats.tma.split(':');
-        return parseInt(parts[0]) * 60 + parseInt(parts[1]) + parseInt(parts[2]) / 60;
+        return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
       })() : 0;
 
       return {
         name: monthName,
-        nps: stats.nps,
-        monitoria: stats.monitoria,
-        tma: Number(tmaMinutes.toFixed(2))
+        NPS: stats.nps,
+        Monitoria: stats.monitoria,
+        TMA: tmaSeconds,
+        tmaFormatted: stats.tma || '00:00:00'
       };
     });
   }, [activeOperators, selectedYear]);
@@ -167,7 +168,7 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
                 <div className="w-2 h-2 rounded-full bg-emerald-500"></div> Monitoria
               </div>
               <div className="flex items-center gap-2 text-xs font-bold text-amber-600">
-                <div className="w-2 h-2 rounded-full bg-amber-500"></div> TMA (min)
+                <div className="w-2 h-2 rounded-full bg-amber-500"></div> TMA
               </div>
             </div>
           </div>
@@ -178,11 +179,16 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#9ca3af', fontSize: 12 }} />
                 <Tooltip
                   contentStyle={{ borderRadius: '12px', border: 'none' }}
-                  formatter={(value: number) => formatDecimal(value)}
+                  formatter={(value: number, name: string, props: any) => {
+                    if (name === 'TMA') {
+                      return [props.payload.tmaFormatted, 'TMA'];
+                    }
+                    return [formatDecimal(value), name];
+                  }}
                 />
-                <Area type="monotone" dataKey="nps" stroke="#3b82f6" fill="#3b82f620" />
-                <Area type="monotone" dataKey="monitoria" stroke="#10b981" fill="#10b98120" />
-                <Area type="monotone" dataKey="tma" stroke="#f59e0b" fill="#f59e0b20" />
+                <Area type="monotone" dataKey="NPS" stroke="#3b82f6" fill="#3b82f620" name="NPS" />
+                <Area type="monotone" dataKey="Monitoria" stroke="#10b981" fill="#10b98120" name="Monitoria" />
+                <Area type="monotone" dataKey="TMA" stroke="#f59e0b" fill="#f59e0b20" name="TMA" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
