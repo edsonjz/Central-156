@@ -170,6 +170,68 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
     };
 
     loadData();
+
+    // Subscription para atualizações em tempo real (Supabase Realtime)
+    // Isso garante que quando um operador responder a um feedback, 
+    // o supervisor veja a atualização automaticamente
+    if (supabase && user) {
+      const channel = supabase
+        .channel('operators-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*', // Escuta INSERT, UPDATE, DELETE
+            schema: 'public',
+            table: 'operators'
+          },
+          (payload: any) => {
+            console.log('Realtime update received:', payload);
+            
+            if (payload.eventType === 'UPDATE' && payload.new) {
+              // Atualiza o operador modificado mantendo os demais
+              setOperators(prev => 
+                prev.map(op => 
+                  op.registration === payload.new.registration
+                    ? {
+                        ...payload.new,
+                        kpis: payload.new.kpis || [],
+                        feedbacks: payload.new.feedbacks || [],
+                        documents: payload.new.documents || [],
+                        active: payload.new.active ?? true
+                      }
+                    : op
+                )
+              );
+            } else if (payload.eventType === 'INSERT' && payload.new) {
+              // Adiciona novo operador se não existir
+              setOperators(prev => {
+                const exists = prev.some(op => op.registration === payload.new.registration);
+                if (!exists) {
+                  return [...prev, {
+                    ...payload.new,
+                    kpis: payload.new.kpis || [],
+                    feedbacks: payload.new.feedbacks || [],
+                    documents: payload.new.documents || [],
+                    active: payload.new.active ?? true
+                  }].sort((a, b) => a.name.localeCompare(b.name));
+                }
+                return prev;
+              });
+            } else if (payload.eventType === 'DELETE' && payload.old) {
+              // Remove operador excluído
+              setOperators(prev => 
+                prev.filter(op => op.registration !== payload.old.registration)
+              );
+            }
+          }
+        )
+        .subscribe();
+
+      // Cleanup: remove a subscription quando o componente desmontar
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
   }, [supabase, user, userProfile]);
 
   // Função para atualizar operadores (Enviando para Supabase)
