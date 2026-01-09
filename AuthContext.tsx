@@ -3,10 +3,10 @@ import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import { Role, Operator, CloudConfig, LinkType, WorkMode } from './types';
 import { generateSystemEmail } from './utils';
 
-// Configuração Padrão
+// Configuração Padrão (Usa variáveis de ambiente se disponíveis, senão fallback para desenvolvimento)
 const DEFAULT_CLOUD_CONFIG: CloudConfig = {
-  url: 'https://wdeyalyeodicquajiywy.supabase.co',
-  key: 'sb_publishable_tQ-XWwcY5z47f2NBJWkQWw_seUu03uP',
+  url: import.meta.env.VITE_SUPABASE_URL || 'https://wdeyalyeodicquajiywy.supabase.co',
+  key: import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_tQ-XWwcY5z47f2NBJWkQWw_seUu03uP',
   enabled: true
 };
 
@@ -76,7 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchUserProfile = async (currentUser: User) => {
     if (!supabaseClient) return;
-    
+
     // 1. Tenta busca padrão pelo user_id
     const { data, error } = await supabaseClient
       .from('operators')
@@ -115,7 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (regData) {
           // ENCONTRADO! Vamos consertar o vínculo (Self-Healing)
           console.log("Vínculo encontrado por matrícula. Atualizando user_id...");
-          
+
           await supabaseClient
             .from('operators')
             .update({ user_id: currentUser.id })
@@ -132,32 +132,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // 3. Fallback Final: Verifica se é Admin pelo email
       const isSystemEmail = email.includes('@example.com') ||
-                            email.includes('@sistema156.com') || 
-                            email.includes('@operadores.sistema.local');
-      
+        email.includes('@sistema156.com') ||
+        email.includes('@operadores.sistema.local');
+
       if (!isSystemEmail && email) {
-         // É Supervisor (Admin) sem registro na tabela operators
-         setUserRole(Role.SUPERVISOR);
-         
-         setUserProfile({
-            name: currentUser.user_metadata?.name || 'Administrador',
-            registration: 'SUPERVISOR',
-            role: 'Supervisor',
-            user_id: currentUser.id,
-            active: true,
-            kpis: [], 
-            feedbacks: [], 
-            documents: [],
-            linkType: LinkType.EFETIVO,
-            workMode: WorkMode.PRESENTIAL,
-            costCenter: 'ADM',
-            admissionDate: new Date().toLocaleDateString('pt-BR'),
-            birthDate: ''
-         });
+        // É Supervisor (Admin) sem registro na tabela operators
+        setUserRole(Role.SUPERVISOR);
+
+        setUserProfile({
+          name: currentUser.user_metadata?.name || 'Administrador',
+          registration: 'SUPERVISOR',
+          role: 'Supervisor',
+          user_id: currentUser.id,
+          active: true,
+          kpis: [],
+          feedbacks: [],
+          documents: [],
+          linkType: LinkType.EFETIVO,
+          workMode: WorkMode.PRESENTIAL,
+          costCenter: 'ADM',
+          admissionDate: new Date().toLocaleDateString('pt-BR'),
+          birthDate: ''
+        });
       } else {
-         // Usuário logado mas sem perfil de dados encontrado
-         console.warn("Usuário logado sem perfil de operador correspondente.");
-         setUserRole(Role.OPERATOR);
+        // Usuário logado mas sem perfil de dados encontrado
+        console.warn("Usuário logado sem perfil de operador correspondente.");
+        setUserRole(Role.OPERATOR);
       }
     }
     setIsLoading(false);
@@ -165,15 +165,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (identifier: string, password: string) => {
     if (!supabaseClient) return { error: 'Cliente não inicializado' };
-    
+
     let email = identifier;
-    
+
     // Regra de negócio:
     // Se NÃO contém '@', assume que é Matrícula de Operador e converte para e-mail técnico.
     if (!identifier.includes('@')) {
       email = generateSystemEmail(identifier);
     }
-    
+
     let { data, error } = await supabaseClient.auth.signInWithPassword({
       email,
       password,
@@ -192,7 +192,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email: fallbackEmail,
           password
         });
-        
+
         if (!retryError && retryData.user) {
           return { data: retryData, error: null };
         }
@@ -238,14 +238,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isAdmin = userRole === Role.SUPERVISOR;
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      session, 
-      userRole, 
-      userProfile, 
-      isLoading, 
+    <AuthContext.Provider value={{
+      user,
+      session,
+      userRole,
+      userProfile,
+      isLoading,
       supabase: supabaseClient,
-      login, 
+      login,
       logout,
       createOperatorAccount,
       isAdmin

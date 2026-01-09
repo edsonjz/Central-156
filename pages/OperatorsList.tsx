@@ -169,8 +169,6 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
 
     const newStatus = !target.active;
 
-    const newStatus = !target.active;
-
     // OTIMIZADO
     onSaveOperator({ ...target, active: newStatus });
   };
