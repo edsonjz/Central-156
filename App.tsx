@@ -172,8 +172,6 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
     loadData();
 
     // Subscription para atualizações em tempo real (Supabase Realtime)
-    // Isso garante que quando um operador responder a um feedback, 
-    // o supervisor veja a atualização automaticamente
     if (supabase && user) {
       const channel = supabase
         .channel('operators-changes')
@@ -184,52 +182,48 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
             schema: 'public',
             table: 'operators'
           },
-          (payload: any) => {
-            console.log('Realtime update received:', payload);
+          async (payload: any) => {
+            console.log('Realtime Event:', payload);
 
-            if (payload.eventType === 'UPDATE' && payload.new) {
-              setOperators(prev =>
-                prev.map(op => {
-                  if (op.registration === payload.new.registration) {
-                    // Mescla os dados recebidos com os dados existentes para evitar perda de campos
-                    return {
-                      ...op,
-                      ...payload.new,
-                      kpis: payload.new.kpis || op.kpis || [],
-                      feedbacks: payload.new.feedbacks || op.feedbacks || [],
-                      documents: payload.new.documents || op.documents || [],
-                      active: payload.new.active ?? op.active ?? true
-                    };
+            if (payload.eventType === 'DELETE' && payload.old) {
+              setOperators(prev => prev.filter(op => op.registration !== payload.old.registration));
+              return;
+            }
+
+            // Para INSERT e UPDATE, buscamos o dado fresco do banco para garantir integridade do JSONB
+            if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && payload.new) {
+              const reg = payload.new.registration;
+
+              // Busca, dados atualizados deste operador específico
+              const { data: freshOp, error } = await supabase
+                .from('operators')
+                .select('*')
+                .eq('registration', reg)
+                .single();
+
+              if (!error && freshOp) {
+                const sanitizedOp = {
+                  ...freshOp,
+                  kpis: freshOp.kpis || [],
+                  feedbacks: freshOp.feedbacks || [],
+                  documents: freshOp.documents || [],
+                  active: freshOp.active ?? true
+                };
+
+                setOperators(prev => {
+                  const exists = prev.some(op => op.registration === reg);
+                  if (exists) {
+                    return prev.map(op => op.registration === reg ? sanitizedOp : op);
+                  } else {
+                    return [...prev, sanitizedOp].sort((a, b) => a.name.localeCompare(b.name));
                   }
-                  return op;
-                })
-              );
-            } else if (payload.eventType === 'INSERT' && payload.new) {
-              // Adiciona novo operador se não existir
-              setOperators(prev => {
-                const exists = prev.some(op => op.registration === payload.new.registration);
-                if (!exists) {
-                  return [...prev, {
-                    ...payload.new,
-                    kpis: payload.new.kpis || [],
-                    feedbacks: payload.new.feedbacks || [],
-                    documents: payload.new.documents || [],
-                    active: payload.new.active ?? true
-                  }].sort((a, b) => a.name.localeCompare(b.name));
-                }
-                return prev;
-              });
-            } else if (payload.eventType === 'DELETE' && payload.old) {
-              // Remove operador excluído
-              setOperators(prev =>
-                prev.filter(op => op.registration !== payload.old.registration)
-              );
+                });
+              }
             }
           }
         )
         .subscribe();
 
-      // Cleanup: remove a subscription quando o componente desmontar
       return () => {
         supabase.removeChannel(channel);
       };
