@@ -21,10 +21,11 @@ import { generateSystemEmail } from '../utils';
 interface OperatorsListProps {
   operators: Operator[];
   onUpdate: (ops: Operator[] | ((prev: Operator[]) => Operator[])) => void;
+  onSaveOperator: (op: Operator) => void;
   userRole: Role;
 }
 
-const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, userRole }) => {
+const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSaveOperator, userRole }) => {
   const navigate = useNavigate();
   const { supabase, createOperatorAccount } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
@@ -73,14 +74,8 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, user
 
     try {
       if (editingOperator) {
-        // --- EDIÇÃO DE OPERADOR ---
-        onUpdate(prev => prev.map(o => o.registration === editingOperator.registration ? { ...o, ...formData as Operator } : o));
-
-        if (supabase && editingOperator.registration) {
-          const { error } = await supabase.from('operators').update(formData).eq('registration', editingOperator.registration);
-          if (error) throw error;
-        }
-
+        // --- EDIÇÃO DE OPERADOR (OTIMIZADO) ---
+        onSaveOperator({ ...editingOperator, ...formData } as Operator);
         alert('Dados cadastrais atualizados com sucesso!');
       } else {
         // --- CRIAÇÃO DE NOVO OPERADOR ---
@@ -174,11 +169,10 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, user
 
     const newStatus = !target.active;
 
-    onUpdate(prev => prev.map(o => o.registration === registration ? { ...o, active: newStatus } : o));
+    const newStatus = !target.active;
 
-    if (supabase) {
-      await supabase.from('operators').update({ active: newStatus }).eq('registration', registration);
-    }
+    // OTIMIZADO
+    onSaveOperator({ ...target, active: newStatus });
   };
 
   return (

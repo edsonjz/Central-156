@@ -34,11 +34,12 @@ import { useAuth } from '../AuthContext';
 interface OperatorDetailProps {
   operators: Operator[];
   onUpdate: (ops: Operator[] | ((prev: Operator[]) => Operator[])) => void;
+  onSaveOperator: (op: Operator) => void;
   userRole: Role;
   goals: TeamGoals;
 }
 
-const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, userRole, goals }) => {
+const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, onSaveOperator, userRole, goals }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { supabase, userProfile, user, createOperatorAccount } = useAuth();
@@ -114,9 +115,9 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, us
         (f.operatorResponse && f.isRead === false) ? { ...f, isRead: true } : f
       );
 
-      onUpdate(prev => prev.map(o =>
-        o.registration === targetRegistration ? { ...o, feedbacks: updatedFeedbacks } : o
-      ));
+      // OTIMIZADO: Salva apenas este operador
+      onSaveOperator({ ...operator, feedbacks: updatedFeedbacks });
+
     }
   }, [activeTab, userRole, operator.feedbacks, targetRegistration, onUpdate]);
 
@@ -127,7 +128,9 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, us
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64Photo = event.target?.result as string;
-      onUpdate(prev => prev.map(o => o.registration === targetRegistration ? { ...o, photoUrl: base64Photo } : o));
+      if (operator) {
+        onSaveOperator({ ...operator, photoUrl: base64Photo });
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -205,7 +208,8 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, us
 
         if (updateError) throw updateError;
 
-        onUpdate(prev => prev.map(o => o.registration === targetRegistration ? { ...o, user_id: data.user!.id } : o));
+        // OTIMIZADO
+        onSaveOperator({ ...operator, user_id: data.user!.id });
 
         setAccessModalOpen(false);
         alert(`ACESSO CRIADO COM SUCESSO!\n\nEntregue ao operador:\nLogin: ${operator.registration}\nSenha: ${newPassword}`);
@@ -249,27 +253,25 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, us
       month: kpiForm.month
     };
 
-    onUpdate(prev => {
-      return prev.map(o => {
-        if (o.registration === targetRegistration) {
-          let updatedKpis;
-          if (editingKPI) {
-            updatedKpis = o.kpis.map(k => k.id === editingKPI.id ? { ...k, ...finalKPI } : k);
-          } else {
-            const newKpi: KPI = { id: Math.random().toString(), ...finalKPI };
-            updatedKpis = [...o.kpis, newKpi].sort((a, b) => b.month.localeCompare(a.month));
-          }
-          return { ...o, kpis: updatedKpis };
-        }
-        return o;
-      });
-    });
+    if (!operator) return;
+
+    let updatedKpis;
+    if (editingKPI) {
+      updatedKpis = operator.kpis.map(k => k.id === editingKPI.id ? { ...k, ...finalKPI } : k);
+    } else {
+      const newKpi: KPI = { id: Math.random().toString(), ...finalKPI };
+      updatedKpis = [...operator.kpis, newKpi].sort((a, b) => b.month.localeCompare(a.month));
+    }
+
+    // OTIMIZADO
+    onSaveOperator({ ...operator, kpis: updatedKpis });
+
     setModalKPI(false);
   };
 
   const handleDeleteKPI = (kpiId: string) => {
-    if (window.confirm('Tem certeza que deseja excluir permanentemente este indicador de KPI?')) {
-      onUpdate(prev => prev.map(o => o.registration === targetRegistration ? { ...o, kpis: o.kpis.filter(k => k.id !== kpiId) } : o));
+    if (window.confirm('Tem certeza que deseja excluir permanentemente este indicador de KPI?') && operator) {
+      onSaveOperator({ ...operator, kpis: operator.kpis.filter(k => k.id !== kpiId) });
     }
   };
 
@@ -284,13 +286,16 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, us
       supervisorName: 'Supervisor',
       comment: newFeedback
     };
-    onUpdate(prev => prev.map(o => o.registration === targetRegistration ? { ...o, feedbacks: [feedback, ...o.feedbacks] } : o));
+
+    if (operator) {
+      onSaveOperator({ ...operator, feedbacks: [feedback, ...operator.feedbacks] });
+    }
     setNewFeedback('');
   };
 
   const handleDeleteFeedback = (feedbackId: string) => {
-    if (window.confirm('Deseja excluir este feedback permanentemente?')) {
-      onUpdate(prev => prev.map(o => o.registration === targetRegistration ? { ...o, feedbacks: o.feedbacks.filter(f => f.id !== feedbackId) } : o));
+    if (window.confirm('Deseja excluir este feedback permanentemente?') && operator) {
+      onSaveOperator({ ...operator, feedbacks: operator.feedbacks.filter(f => f.id !== feedbackId) });
     }
   };
 
@@ -300,17 +305,12 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, us
   };
 
   const handleSaveEditedFeedback = (feedbackId: string) => {
-    if (!editFeedbackText.trim()) return;
+    if (!editFeedbackText.trim() || !operator) return;
 
-    onUpdate(prev => prev.map(o => {
-      if (o.registration === targetRegistration) {
-        return {
-          ...o,
-          feedbacks: o.feedbacks.map(f => f.id === feedbackId ? { ...f, comment: editFeedbackText } : f)
-        };
-      }
-      return o;
-    }));
+    onSaveOperator({
+      ...operator,
+      feedbacks: operator.feedbacks.map(f => f.id === feedbackId ? { ...f, comment: editFeedbackText } : f)
+    });
 
     setEditingFeedback(null);
     setEditFeedbackText('');
@@ -318,17 +318,12 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, us
 
   const handleSendResponse = (feedbackId: string) => {
     const responseText = replyDrafts[feedbackId];
-    if (!responseText?.trim()) return;
+    if (!responseText?.trim() || !operator) return;
 
-    onUpdate(prev => prev.map(o => {
-      if (o.registration === targetRegistration) {
-        return {
-          ...o,
-          feedbacks: o.feedbacks.map(f => f.id === feedbackId ? { ...f, operatorResponse: responseText, isRead: false } : f)
-        };
-      }
-      return o;
-    }));
+    onSaveOperator({
+      ...operator,
+      feedbacks: operator.feedbacks.map(f => f.id === feedbackId ? { ...f, operatorResponse: responseText, isRead: false } : f)
+    });
 
     // Limpa o rascunho
     const newDrafts = { ...replyDrafts };
@@ -351,15 +346,17 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, us
         url: event.target?.result as string,
         date: new Date().toLocaleDateString('pt-BR')
       };
-      onUpdate(prev => prev.map(o => o.registration === targetRegistration ? { ...o, documents: [...(o.documents || []), newDoc] } : o));
+      if (operator) {
+        onSaveOperator({ ...operator, documents: [...(operator.documents || []), newDoc] });
+      }
     };
     reader.readAsDataURL(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleDeleteDocument = (docId: string) => {
-    if (window.confirm('Deseja excluir este anexo permanentemente?')) {
-      onUpdate(prev => prev.map(o => o.registration === targetRegistration ? { ...o, documents: o.documents.filter(d => d.id !== docId) } : o));
+    if (window.confirm('Deseja excluir este anexo permanentemente?') && operator) {
+      onSaveOperator({ ...operator, documents: operator.documents.filter(d => d.id !== docId) });
     }
   };
 
