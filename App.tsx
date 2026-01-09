@@ -172,8 +172,10 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
     loadData();
 
     // Subscription para atualizações em tempo real (Supabase Realtime)
+    let channel: any;
+
     if (supabase && user) {
-      const channel = supabase
+      channel = supabase
         .channel('operators-changes')
         .on(
           'postgres_changes',
@@ -183,18 +185,17 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
             table: 'operators'
           },
           async (payload: any) => {
-            console.log('Realtime Event:', payload);
+            console.log('Realtime Event received:', payload);
 
             if (payload.eventType === 'DELETE' && payload.old) {
               setOperators(prev => prev.filter(op => op.registration !== payload.old.registration));
               return;
             }
 
-            // Para INSERT e UPDATE, buscamos o dado fresco do banco para garantir integridade do JSONB
+            // Para INSERT e UPDATE, buscamos o dado fresco do banco
             if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && payload.new) {
               const reg = payload.new.registration;
 
-              // Busca, dados atualizados deste operador específico
               const { data: freshOp, error } = await supabase
                 .from('operators')
                 .select('*')
@@ -222,12 +223,45 @@ CREATE POLICY "Escrita Supervisor" ON config FOR ALL USING (is_supervisor());
             }
           }
         )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
+        .subscribe((status: string) => {
+          console.log("Supabase Realtime Status:", status);
+        });
     }
+
+    // --- FALLBACK: Polling de segurança (a cada 5s) ---
+    // Garante que, se o socket falhar, os dados ainda serão atualizados
+    const intervalId = setInterval(() => {
+      // Recarrega apenas se a aba estiver visível para economizar recursos
+      if (document.visibilityState === 'visible') {
+        supabase?.from('operators').select('*').order('name').then(({ data, error }) => {
+          if (data && !error) {
+            const loadedOps = data.map((op: any) => ({
+              ...op,
+              kpis: op.kpis || [],
+              feedbacks: op.feedbacks || [],
+              documents: op.documents || [],
+              active: op.active ?? true
+            }));
+            // Atualização silenciosa (sem loading state)
+            setOperators(current => {
+              // Comparação simples para evitar re-renders desnecessários se possível, 
+              // mas aqui focamos em garantir a atualização.
+              // JSON.stringify é custoso, mas com dataset pequeno é aceitável para garantir sincronia.
+              if (JSON.stringify(current) !== JSON.stringify(loadedOps)) {
+                console.log("Polling: Dados atualizados detectados.");
+                return loadedOps;
+              }
+              return current;
+            });
+          }
+        });
+      }
+    }, 5000);
+
+    return () => {
+      if (channel) supabase?.removeChannel(channel);
+      clearInterval(intervalId);
+    };
   }, [supabase, user, userProfile]);
 
   // Função para atualizar operadores (Enviando para Supabase)
