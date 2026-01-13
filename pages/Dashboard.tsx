@@ -11,7 +11,7 @@ import {
   Filter
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Operator, TeamGoals } from '../types';
+import { Operator, TeamGoals, OperatorClassification } from '../types';
 import { calculateAverageKPIs, getStatusColor, formatDecimal } from '../utils';
 import { MONTHS } from '../constants';
 
@@ -43,8 +43,15 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
   const currentDate = new Date();
   const [selectedMonth, setSelectedMonth] = useState(String(currentDate.getMonth() + 1));
   const [selectedYear, setSelectedYear] = useState(String(currentDate.getFullYear()));
+  const [selectedClassification, setSelectedClassification] = useState<'all' | OperatorClassification>('all');
 
-  const activeOperators = useMemo(() => operators.filter(o => o.active), [operators]);
+  const activeOperators = useMemo(() => {
+    return operators.filter(o => {
+      const isActive = o.active !== false;
+      const matchesClassification = selectedClassification === 'all' || o.classification === selectedClassification;
+      return isActive && matchesClassification;
+    });
+  }, [operators, selectedClassification]);
 
   // Filtra os KPIs baseados na seleção para os Cards e Rankings
   const currentPeriodKPIs = useMemo(() => {
@@ -145,6 +152,17 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
             {years.map(y => (
               <option key={y} value={y}>{y}</option>
             ))}
+          </select>
+
+          <div className="w-px h-4 bg-gray-200 mx-1"></div>
+          <select
+            className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer"
+            value={selectedClassification}
+            onChange={(e) => setSelectedClassification(e.target.value as any)}
+          >
+            <option value="all">Todas Atribuições</option>
+            <option value={OperatorClassification.SMF}>SMF</option>
+            <option value={OperatorClassification.OUTROS}>Outros</option>
           </select>
         </div>
       </div>

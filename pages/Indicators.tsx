@@ -1,11 +1,11 @@
 
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  TrendingUp, 
-  Search, 
-  ChevronRight, 
-  ArrowUpRight, 
+import {
+  TrendingUp,
+  Search,
+  ChevronRight,
+  ArrowUpRight,
   ArrowDownRight,
   Calendar,
   Clock,
@@ -13,17 +13,17 @@ import {
   CheckCircle,
   Filter
 } from 'lucide-react';
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
-  Cell 
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell
 } from 'recharts';
-import { Operator, TeamGoals, Role } from '../types';
+import { Operator, TeamGoals, Role, OperatorClassification } from '../types';
 import { calculateAverageKPIs, getStatusColor, tmaToSeconds, formatDecimal } from '../utils';
 import { MONTHS } from '../constants';
 
@@ -35,7 +35,7 @@ interface IndicatorsProps {
 
 const SummaryCard = ({ title, value, goal, unit = '', type = 'higher' as const }: any) => {
   const isSuccess = getStatusColor(value, goal, type) === 'text-green-600';
-  
+
   return (
     <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm transition-all hover:shadow-md">
       <div className="flex justify-between items-start mb-2">
@@ -56,13 +56,13 @@ const SummaryCard = ({ title, value, goal, unit = '', type = 'higher' as const }
 
 const ToggleFilter = ({ value, onChange }: { value: 'best' | 'worst', onChange: (v: 'best' | 'worst') => void }) => (
   <div className="flex bg-gray-100 p-1 rounded-xl">
-    <button 
+    <button
       onClick={() => onChange('best')}
       className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${value === 'best' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
     >
       Top 10 Melhores
     </button>
-    <button 
+    <button
       onClick={() => onChange('worst')}
       className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${value === 'worst' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
     >
@@ -74,19 +74,26 @@ const ToggleFilter = ({ value, onChange }: { value: 'best' | 'worst', onChange: 
 const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
-  
+
   // Filtros de Data
   const currentDate = new Date();
   const [selectedMonth, setSelectedMonth] = useState(String(currentDate.getMonth() + 1));
   const [selectedYear, setSelectedYear] = useState(String(currentDate.getFullYear()));
+  const [selectedClassification, setSelectedClassification] = useState<'all' | OperatorClassification>('all');
 
   // Filtros dos gráficos
   const [filterQualidade, setFilterQualidade] = useState<'best' | 'worst'>('best');
   const [filterNPS, setFilterNPS] = useState<'best' | 'worst'>('best');
   const [filterTMA, setFilterTMA] = useState<'best' | 'worst'>('best');
-  
-  const activeOps = useMemo(() => operators.filter(o => o.active), [operators]);
-  
+
+  const activeOps = useMemo(() => {
+    return operators.filter(o => {
+      const isActive = o.active !== false;
+      const matchesClassification = selectedClassification === 'all' || o.classification === selectedClassification;
+      return isActive && matchesClassification;
+    });
+  }, [operators, selectedClassification]);
+
   // Cálculos baseados APENAS no mês selecionado
   const teamStats = useMemo(() => {
     const targetKey = `${selectedYear}-${selectedMonth.padStart(2, '0')}`;
@@ -101,7 +108,7 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
     return activeOps.map(op => {
       // Filtra KPI específico do mês
       const kpis = op.kpis.filter(k => k.month === targetKey);
-      
+
       // Se não tem KPI no mês, retorna null para ser filtrado depois (não entra no ranking)
       if (kpis.length === 0) return null;
 
@@ -133,8 +140,8 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
   const dataNPS = useMemo(() => getSortedData('avgNps', filterNPS), [rankingData, filterNPS]);
   const dataTMA = useMemo(() => getSortedData('avgTmaSeconds', filterTMA), [rankingData, filterTMA]);
 
-  const filteredList = rankingData.filter(op => 
-    op.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+  const filteredList = rankingData.filter(op =>
+    op.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     op.registration.includes(searchTerm)
   );
 
@@ -147,13 +154,13 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
           <h1 className="text-2xl font-bold text-gray-900">Métricas Consolidadas</h1>
           <p className="text-gray-500">Visão analítica de performance individual e coletiva.</p>
         </div>
-        
-         {/* Filtros de Data */}
-         <div className="flex items-center gap-2 bg-white p-2 rounded-xl border border-gray-100 shadow-sm">
+
+        {/* Filtros de Data */}
+        <div className="flex items-center gap-2 bg-white p-2 rounded-xl border border-gray-100 shadow-sm">
           <div className="p-2 bg-gray-50 rounded-lg text-gray-400">
-             <Filter size={18} />
+            <Filter size={18} />
           </div>
-          <select 
+          <select
             className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer"
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value)}
@@ -163,14 +170,25 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
             ))}
           </select>
           <div className="w-px h-4 bg-gray-200 mx-1"></div>
-          <select 
-             className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer"
-             value={selectedYear}
-             onChange={(e) => setSelectedYear(e.target.value)}
+          <select
+            className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer"
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(e.target.value)}
           >
             {years.map(y => (
               <option key={y} value={y}>{y}</option>
             ))}
+          </select>
+
+          <div className="w-px h-4 bg-gray-200 mx-1"></div>
+          <select
+            className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer"
+            value={selectedClassification}
+            onChange={(e) => setSelectedClassification(e.target.value as any)}
+          >
+            <option value="all">Todas Atribuições</option>
+            <option value={OperatorClassification.SMF}>SMF</option>
+            <option value={OperatorClassification.OUTROS}>Outros</option>
           </select>
         </div>
       </div>
@@ -183,11 +201,11 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
 
       <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2 mt-4">
         <TrendingUp size={20} className="text-blue-600" />
-        Rankings de Performance ({MONTHS[Number(selectedMonth)-1]}/{selectedYear})
+        Rankings de Performance ({MONTHS[Number(selectedMonth) - 1]}/{selectedYear})
       </h2>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        
+
         {/* GRÁFICO 1: QUALIDADE */}
         <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col">
           <div className="flex justify-between items-center mb-6">
@@ -203,10 +221,10 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
                 <BarChart data={dataQualidade} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f3f4f6" />
                   <XAxis type="number" domain={[0, 100]} hide />
-                  <YAxis dataKey="shortName" type="category" width={80} tick={{fontSize: 11, fill: '#64748b', fontWeight: 600}} axisLine={false} tickLine={false} />
-                  <Tooltip 
-                    cursor={{fill: '#f8fafc'}} 
-                    contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}}
+                  <YAxis dataKey="shortName" type="category" width={80} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
+                  <Tooltip
+                    cursor={{ fill: '#f8fafc' }}
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
                     formatter={(value: number) => [formatDecimal(value), 'Qualidade']}
                   />
                   <Bar dataKey="avgMonitoria" radius={[0, 4, 4, 0]} barSize={20}>
@@ -233,23 +251,23 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
           </div>
           <div className="h-64">
             {dataNPS.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={dataNPS} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f3f4f6" />
-                <XAxis type="number" domain={[0, 100]} hide />
-                <YAxis dataKey="shortName" type="category" width={80} tick={{fontSize: 11, fill: '#64748b', fontWeight: 600}} axisLine={false} tickLine={false} />
-                <Tooltip 
-                  cursor={{fill: '#f8fafc'}} 
-                  contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}}
-                  formatter={(value: number) => [formatDecimal(value), 'NPS']}
-                />
-                <Bar dataKey="avgNps" radius={[0, 4, 4, 0]} barSize={20}>
-                  {dataNPS.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={filterNPS === 'best' ? '#3b82f6' : '#f97316'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={dataNPS} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f3f4f6" />
+                  <XAxis type="number" domain={[0, 100]} hide />
+                  <YAxis dataKey="shortName" type="category" width={80} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
+                  <Tooltip
+                    cursor={{ fill: '#f8fafc' }}
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
+                    formatter={(value: number) => [formatDecimal(value), 'NPS']}
+                  />
+                  <Bar dataKey="avgNps" radius={[0, 4, 4, 0]} barSize={20}>
+                    {dataNPS.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={filterNPS === 'best' ? '#3b82f6' : '#f97316'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             ) : (
               <div className="h-full flex items-center justify-center text-gray-400 italic text-sm">Sem dados para este período</div>
             )}
@@ -267,34 +285,34 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
           </div>
           <div className="h-64">
             {dataTMA.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={dataTMA} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f3f4f6" />
-                <XAxis type="number" hide />
-                <YAxis dataKey="shortName" type="category" width={80} tick={{fontSize: 11, fill: '#64748b', fontWeight: 600}} axisLine={false} tickLine={false} />
-                <Tooltip 
-                  cursor={{fill: '#f8fafc'}} 
-                  contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}}
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      const data = payload[0].payload;
-                      return (
-                        <div className="bg-white p-2 rounded-lg shadow-lg border border-gray-100 text-xs font-bold text-gray-600">
-                          <p className="mb-1">{data.name}</p>
-                          <p className="text-indigo-600">TMA: {data.avgTma}</p>
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                />
-                <Bar dataKey="avgTmaSeconds" radius={[0, 4, 4, 0]} barSize={20}>
-                  {dataTMA.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={filterTMA === 'best' ? '#6366f1' : '#ef4444'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={dataTMA} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f3f4f6" />
+                  <XAxis type="number" hide />
+                  <YAxis dataKey="shortName" type="category" width={80} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
+                  <Tooltip
+                    cursor={{ fill: '#f8fafc' }}
+                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload;
+                        return (
+                          <div className="bg-white p-2 rounded-lg shadow-lg border border-gray-100 text-xs font-bold text-gray-600">
+                            <p className="mb-1">{data.name}</p>
+                            <p className="text-indigo-600">TMA: {data.avgTma}</p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Bar dataKey="avgTmaSeconds" radius={[0, 4, 4, 0]} barSize={20}>
+                    {dataTMA.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={filterTMA === 'best' ? '#6366f1' : '#ef4444'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             ) : (
               <div className="h-full flex items-center justify-center text-gray-400 italic text-sm">Sem dados para este período</div>
             )}
@@ -309,18 +327,18 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
               <Search size={18} className="text-gray-400" />
               Filtro Rápido
             </h3>
-            <input 
-              type="text" 
+            <input
+              type="text"
               placeholder="Buscar operador na tabela..."
               className="flex-1 bg-gray-50 border border-gray-100 rounded-xl p-2 px-4 text-sm focus:ring-2 focus:ring-blue-500/10 outline-none"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          
+
           <div className="overflow-hidden rounded-2xl border border-gray-100">
             <div className="p-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
-              <h3 className="font-bold text-gray-700 text-sm uppercase tracking-wide">Tabela de Performance - {MONTHS[Number(selectedMonth)-1]}/{selectedYear}</h3>
+              <h3 className="font-bold text-gray-700 text-sm uppercase tracking-wide">Tabela de Performance - {MONTHS[Number(selectedMonth) - 1]}/{selectedYear}</h3>
               <span className="text-[10px] font-black text-blue-600 bg-blue-100 px-3 py-1 rounded-full">TOTAL: {filteredList.length}</span>
             </div>
             <div className="overflow-x-auto">
@@ -366,7 +384,7 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
                         <td className="px-4 py-3">
                           <div className="flex flex-col items-center gap-1">
                             <div className="w-20 bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                              <div 
+                              <div
                                 className={`h-full rounded-full ${op.avgMonitoria >= goals.monitoria ? 'bg-green-500' : 'bg-red-500'}`}
                                 style={{ width: `${op.avgMonitoria}%` }}
                               ></div>
@@ -377,7 +395,7 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
                           </div>
                         </td>
                         <td className="px-6 py-3 text-right">
-                          <button 
+                          <button
                             onClick={() => navigate(`/operator/${op.registration}`)}
                             className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                           >
