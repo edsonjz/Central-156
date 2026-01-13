@@ -15,6 +15,11 @@ export enum LinkType {
   APRENDIZ = 'Aprendiz'
 }
 
+export enum OperatorClassification {
+  SMF = 'SMF',
+  OUTROS = 'Outros'
+}
+
 export interface KPI {
   id: string;
   month: string; // YYYY-MM
@@ -43,6 +48,7 @@ export interface Operator {
   role: string;
   linkType: LinkType;
   costCenter: string;
+  classification: OperatorClassification;
   workMode: WorkMode;
   birthDate: string;
   photoUrl?: string;

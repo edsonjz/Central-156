@@ -14,6 +14,7 @@ import {
   Heart,
   Clock,
   Eye,
+  Info,
   Edit,
   Download,
   AlertTriangle,
@@ -27,7 +28,7 @@ import {
   Send,
   Check
 } from 'lucide-react';
-import { Operator, Role, KPI, Feedback, TeamGoals } from '../types';
+import { Operator, Role, KPI, Feedback, TeamGoals, OperatorClassification } from '../types';
 import { calculateAverageKPIs, getStatusColor, formatDecimal, generateSystemEmail } from '../utils';
 import { useAuth } from '../AuthContext';
 
@@ -467,6 +468,10 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
               <div className="flex items-center gap-4 text-sm">
                 <AlertTriangle className="text-gray-400" size={18} />
                 <span>Vínculo: {operator.linkType}</span>
+              </div>
+              <div className="flex items-center gap-4 text-sm">
+                <Info className="text-gray-400" size={18} />
+                <span>Atribuição: {operator.classification || 'Outros'}</span>
               </div>
             </div>
           </div>

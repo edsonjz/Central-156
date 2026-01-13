@@ -20,6 +20,7 @@ interface AuthContextType {
   login: (identifier: string, password: string) => Promise<{ error: any }>;
   logout: () => Promise<void>;
   createOperatorAccount: (email: string, password: string, metaData: any) => Promise<{ data: any; error: any }>;
+  updateOperatorPassword: (userId: string, newPassword: string) => Promise<{ error: any }>;
   isAdmin: boolean;
 }
 
@@ -235,6 +236,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const updateOperatorPassword = async (userId: string, newPassword: string) => {
+    if (!supabaseClient) return { error: { message: 'Cliente não inicializado' } };
+
+    // Chama Edge Function para atualizar senha (Requer Service Role no Backend)
+    const { data, error } = await supabaseClient.functions.invoke('update-user-password', {
+      body: { userId, newPassword }
+    });
+
+    return { data, error };
+  };
+
   const isAdmin = userRole === Role.SUPERVISOR;
 
   return (
@@ -248,6 +260,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       login,
       logout,
       createOperatorAccount,
+      updateOperatorPassword,
       isAdmin
     }}>
       {children}

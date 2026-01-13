@@ -14,7 +14,7 @@ import {
   KeyRound,
   UserPlus
 } from 'lucide-react';
-import { Operator, Role, LinkType, WorkMode } from '../types';
+import { Operator, Role, LinkType, WorkMode, OperatorClassification } from '../types';
 import { useAuth } from '../AuthContext';
 import { generateSystemEmail } from '../utils';
 
@@ -27,17 +27,21 @@ interface OperatorsListProps {
 
 const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSaveOperator, userRole }) => {
   const navigate = useNavigate();
-  const { supabase, createOperatorAccount } = useAuth();
+  const { supabase, createOperatorAccount, updateOperatorPassword } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | WorkMode>('all');
+  const [filterClassification, setFilterClassification] = useState<'all' | OperatorClassification>('all');
   const [modalOpen, setModalOpen] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [selectedOperatorForPassword, setSelectedOperatorForPassword] = useState<Operator | null>(null);
+  const [newPasswordForChange, setNewPasswordForChange] = useState('');
   const [editingOperator, setEditingOperator] = useState<Operator | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState<Partial<Operator>>({
     name: '', registration: '', role: 'Operador', admissionDate: '',
-    linkType: LinkType.EFETIVO, costCenter: 'CENTRAL 156', workMode: WorkMode.PRESENTIAL,
+    linkType: LinkType.EFETIVO, costCenter: 'CENTRAL 156', classification: OperatorClassification.OUTROS, workMode: WorkMode.PRESENTIAL,
     birthDate: '', active: true
   });
 
@@ -47,7 +51,8 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
   const filteredOperators = operators.filter(op => {
     const matchesSearch = op.name.toLowerCase().includes(searchTerm.toLowerCase()) || op.registration.includes(searchTerm);
     const matchesMode = filterMode === 'all' || op.workMode === filterMode;
-    return matchesSearch && matchesMode;
+    const matchesClassification = filterClassification === 'all' || op.classification === filterClassification;
+    return matchesSearch && matchesMode && matchesClassification;
   });
 
   const handleOpenModal = (op?: Operator) => {
@@ -59,7 +64,7 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
       setEditingOperator(null);
       setFormData({
         name: '', registration: '', role: 'Operador', admissionDate: '',
-        linkType: LinkType.EFETIVO, costCenter: 'CENTRAL 156', workMode: WorkMode.PRESENTIAL,
+        linkType: LinkType.EFETIVO, costCenter: 'CENTRAL 156', classification: OperatorClassification.OUTROS, workMode: WorkMode.PRESENTIAL,
         birthDate: '', active: true
       });
       setNewPassword('123456'); // Senha padrão sugerida
@@ -208,6 +213,15 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
             <option value={WorkMode.PRESENTIAL}>Presencial</option>
             <option value={WorkMode.HOME_OFFICE}>Home Office</option>
           </select>
+          <select
+            className="text-xs font-bold bg-gray-50 border border-gray-200 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500/20"
+            value={filterClassification}
+            onChange={(e) => setFilterClassification(e.target.value as any)}
+          >
+            <option value="all">Todas Atribuições</option>
+            <option value={OperatorClassification.SMF}>SMF</option>
+            <option value={OperatorClassification.OUTROS}>Outros</option>
+          </select>
         </div>
       </div>
 
@@ -219,6 +233,7 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
                 <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Cadastro</th>
                 <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Colaborador</th>
                 <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Vínculo</th>
+                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Atribuição</th>
                 <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Modalidade</th>
                 <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Status</th>
                 <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase text-right">Ações</th>
@@ -255,7 +270,11 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{op.linkType}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${op.classification === OperatorClassification.SMF ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700'}`}>
+                        {op.classification}
+                      </span>
+                    </td>
                     <td className="px-6 py-4 text-sm text-gray-600">{op.workMode}</td>
                     <td className="px-6 py-4">
                       <button
@@ -283,6 +302,19 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
                             >
                               <Edit size={18} />
                             </button>
+                            {op.user_id && (
+                              <button
+                                onClick={() => {
+                                  setSelectedOperatorForPassword(op);
+                                  setNewPasswordForChange('');
+                                  setPasswordModalOpen(true);
+                                }}
+                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                title="Alterar Senha"
+                              >
+                                <KeyRound size={18} />
+                              </button>
+                            )}
                             <button
                               onClick={(e) => handleDelete(e, op.registration)}
                               className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
@@ -365,6 +397,17 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
                     <option value={LinkType.APRENDIZ}>Aprendiz</option>
                   </select>
                 </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 block mb-1 uppercase tracking-wider">Atribuição</label>
+                  <select
+                    className="w-full border rounded-lg p-2 text-sm bg-white outline-none"
+                    value={formData.classification}
+                    onChange={e => setFormData({ ...formData, classification: e.target.value as OperatorClassification })}
+                  >
+                    <option value={OperatorClassification.SMF}>SMF (Secretaria Fazenda)</option>
+                    <option value={OperatorClassification.OUTROS}>Outros (Serviços Gerais)</option>
+                  </select>
+                </div>
 
                 {!editingOperator && (
                   <div className="col-span-2 bg-yellow-50 p-4 rounded-xl border border-yellow-200 mt-2">
@@ -393,6 +436,64 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
                 {isSubmitting ? 'Processando...' : (editingOperator ? 'Salvar Alterações' : 'Criar Operador e Gerar Acesso')}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+      {passwordModalOpen && selectedOperatorForPassword && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b flex justify-between items-center bg-blue-50">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <KeyRound size={20} className="text-blue-600" />
+                Alterar Senha
+              </h3>
+              <button onClick={() => setPasswordModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-xs text-amber-800 flex gap-2">
+                <Info size={16} className="shrink-0" />
+                <p>Você está alterando a senha de <strong>{selectedOperatorForPassword.name}</strong>. Esta ação é imediata.</p>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 block mb-1 uppercase tracking-wider">Nova Senha</label>
+                <input
+                  type="text"
+                  className="w-full border rounded-lg p-3 text-sm font-mono font-bold tracking-wider focus:ring-2 focus:ring-blue-500/20 outline-none"
+                  value={newPasswordForChange}
+                  onChange={e => setNewPasswordForChange(e.target.value)}
+                  placeholder="Mínimo 6 caracteres"
+                />
+              </div>
+              <button
+                onClick={async () => {
+                  if (newPasswordForChange.length < 6) {
+                    alert("A senha deve ter no mínimo 6 caracteres.");
+                    return;
+                  }
+                  if (!selectedOperatorForPassword.user_id) {
+                    alert("Erro: Operador não possui ID de usuário.");
+                    return;
+                  }
+
+                  setIsSubmitting(true);
+                  const { error } = await updateOperatorPassword(selectedOperatorForPassword.user_id, newPasswordForChange);
+                  setIsSubmitting(false);
+
+                  if (error) {
+                    alert(`Erro ao alterar senha: ${error.message || 'Falha na comunicação'}`);
+                  } else {
+                    alert(`Senha alterada com sucesso para ${selectedOperatorForPassword.name}!\n\nNova Senha: ${newPasswordForChange}`);
+                    setPasswordModalOpen(false);
+                  }
+                }}
+                disabled={isSubmitting || newPasswordForChange.length < 6}
+                className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {isSubmitting ? 'Alterando...' : 'Confirmar Nova Senha'}
+              </button>
+            </div>
           </div>
         </div>
       )}
