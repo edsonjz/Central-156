@@ -107,7 +107,7 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
   }
 
   const targetRegistration = operator.registration;
-  const stats = calculateAverageKPIs(operator.kpis);
+  const stats = calculateAverageKPIs(getLatestKPIsPerMonth(operator.kpis));
 
   // Efeito para marcar feedbacks como lidos quando o supervisor visualiza a aba
   React.useEffect(() => {

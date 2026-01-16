@@ -52,10 +52,7 @@ export const getLatestKPIsPerMonth = (kpis: KPI[]): KPI[] => {
 };
 
 export const calculateAverageKPIs = (kpis: KPI[]) => {
-  // REGRA: Apenas o último lançamento de cada mês conta para a média.
-  const latestKpis = getLatestKPIsPerMonth(kpis);
-
-  if (latestKpis.length === 0) return { tma: '00:00:00', nps: 0, monitoria: 0 };
+  if (!kpis || kpis.length === 0) return { tma: '00:00:00', nps: 0, monitoria: 0 };
 
   let tmaSum = 0;
   let tmaCount = 0;
@@ -64,7 +61,7 @@ export const calculateAverageKPIs = (kpis: KPI[]) => {
   let monSum = 0;
   let monCount = 0;
 
-  latestKpis.forEach(k => {
+  kpis.forEach(k => {
     if (k.tma && k.tma !== '00:00:00') {
       tmaSum += tmaToSeconds(k.tma);
       tmaCount++;

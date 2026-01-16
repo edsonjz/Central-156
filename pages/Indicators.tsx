@@ -97,7 +97,15 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
   // Cálculos baseados APENAS no mês selecionado
   const teamStats = useMemo(() => {
     const targetKey = `${selectedYear}-${selectedMonth.padStart(2, '0')}`;
-    const allKpis = activeOps.flatMap(o => o.kpis.filter(k => k.month === targetKey));
+    const allKpis = activeOps.flatMap(o => {
+      const kpis = o.kpis.filter(k => k.month === targetKey);
+      if (kpis.length === 0) return [];
+      return kpis.sort((a, b) => {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+      }).slice(0, 1);
+    });
     return calculateAverageKPIs(allKpis);
   }, [activeOps, selectedMonth, selectedYear]);
 

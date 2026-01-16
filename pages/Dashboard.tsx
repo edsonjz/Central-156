@@ -86,7 +86,18 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
       const monthNum = String(index + 1).padStart(2, '0');
       const monthKey = `${selectedYear}-${monthNum}`;
 
-      const monthKpis = activeOperators.flatMap(o => o.kpis.filter(k => k.month === monthKey));
+      // PEGA APENAS O ÚLTIMO LANÇAMENTO DE CADA OPERADOR PARA ESTE MÊS
+      const monthKpis = activeOperators.flatMap(o => {
+        const kpis = o.kpis.filter(k => k.month === monthKey);
+        if (kpis.length === 0) return [];
+        // Ordena por createdAt desc e pega o primeiro
+        return kpis.sort((a, b) => {
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dateB - dateA;
+        }).slice(0, 1);
+      });
+
       const stats = calculateAverageKPIs(monthKpis);
 
       // Converte TMA de HH:MM:SS para segundos para o gráfico (para ter uma escala numérica)
@@ -110,9 +121,15 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
 
     return activeOperators
       .map(o => {
-        // Pega apenas o KPI do mês selecionado
-        const kpi = o.kpis.find(k => k.month === targetKey);
-        if (!kpi) return null;
+        // Pega apenas o ÚLTIMO lançamento do mês selecionado
+        const monthKpis = o.kpis.filter(k => k.month === targetKey);
+        if (monthKpis.length === 0) return null;
+
+        const kpi = [...monthKpis].sort((a, b) => {
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return dateB - dateA;
+        })[0];
 
         const score = (kpi.nps + kpi.monitoria) / 2;
         return {
