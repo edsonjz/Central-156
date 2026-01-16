@@ -251,16 +251,28 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
       tma: kpiForm.tma.trim() === '' ? null : kpiForm.tma,
       nps: kpiForm.nps === '' ? null : Number(kpiForm.nps),
       monitoria: kpiForm.monitoria === '' ? null : Number(kpiForm.monitoria),
-      month: kpiForm.month,
-      createdAt: new Date().toISOString() // Sempre registra o momento do lançamento
+      month: kpiForm.month
     };
 
     if (!operator) return;
 
-    // REGRA: Nunca altera um registro existente. Sempre cria um novo.
-    // O sistema usará o createdAt para decidir qual é o mais recente.
-    const newKpi: KPI = { id: Math.random().toString(), ...finalKPI };
-    const updatedKpis = [...operator.kpis, newKpi];
+    let updatedKpis;
+    if (editingKPI) {
+      // Se estou editando, atualizo o registro existente mantendo ID e createdAt (se tiver)
+      updatedKpis = operator.kpis.map(k =>
+        k.id === editingKPI.id
+          ? { ...k, ...finalKPI }
+          : k
+      );
+    } else {
+      // Se é novo, crio um novo ID e registro o momento do lançamento
+      const newKpi: KPI = {
+        id: Math.random().toString(),
+        ...finalKPI,
+        createdAt: new Date().toISOString()
+      };
+      updatedKpis = [...operator.kpis, newKpi];
+    }
 
     // OTIMIZADO
     onSaveOperator({ ...operator, kpis: updatedKpis });
@@ -585,9 +597,24 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
                                 </td>
                                 {userRole === Role.SUPERVISOR && (
                                   <td className="py-4 text-right">
-                                    <div className="flex items-center justify-end gap-2 text-[10px] italic text-gray-400">
-                                      {/* Removidos botões de Editar e Excluir para preservar histórico conforme regra */}
-                                      {kpi.createdAt ? `Histórico ID: ${kpi.id.slice(-4)}` : 'Legado'}
+                                    <div className="flex items-center justify-end gap-2">
+                                      <button
+                                        onClick={() => handleOpenKPIModal(kpi)}
+                                        className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                        title="Editar lançamento"
+                                      >
+                                        <Edit size={16} />
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteKPI(kpi.id)}
+                                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                        title="Excluir lançamento"
+                                      >
+                                        <Trash2 size={16} />
+                                      </button>
+                                      <div className="text-[10px] italic text-gray-400 ml-2">
+                                        {kpi.createdAt ? `ID: ${kpi.id.slice(-4)}` : 'Legado'}
+                                      </div>
                                     </div>
                                   </td>
                                 )}

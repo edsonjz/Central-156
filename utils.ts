@@ -99,3 +99,34 @@ export const generateSystemEmail = (registration: string) => {
   const cleanReg = String(registration || '').trim().replace(/[^a-zA-Z0-9]/g, '');
   return `op${cleanReg}@example.com`;
 };
+
+/**
+ * Converte um array de objetos em CSV e dispara o download.
+ * Otimizado para Excel PT-BR (delimitador ; e BOM UTF-8).
+ */
+export const exportToCSV = (data: any[], filename: string) => {
+  if (data.length === 0) return;
+
+  const headers = Object.keys(data[0]);
+  const rows = data.map(obj =>
+    headers.map(header => {
+      const val = obj[header];
+      // Escapa aspas e trata nulos
+      const stringVal = val === null || val === undefined ? '' : String(val);
+      return `"${stringVal.replace(/"/g, '""')}"`;
+    }).join(';')
+  );
+
+  const csvContent = [headers.join(';'), ...rows].join('\n');
+  const bom = '\uFEFF'; // Byte Order Mark para UTF-8 (Excel abre acentos corretamente)
+  const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `${filename}.csv`);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};

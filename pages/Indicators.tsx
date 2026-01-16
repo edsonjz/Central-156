@@ -11,7 +11,8 @@ import {
   Clock,
   Heart,
   CheckCircle,
-  Filter
+  Filter,
+  Download
 } from 'lucide-react';
 import {
   BarChart,
@@ -24,7 +25,7 @@ import {
   Cell
 } from 'recharts';
 import { Operator, TeamGoals, Role, OperatorClassification } from '../types';
-import { calculateAverageKPIs, getStatusColor, tmaToSeconds, formatDecimal } from '../utils';
+import { calculateAverageKPIs, getStatusColor, tmaToSeconds, formatDecimal, exportToCSV, getLatestKPIsPerMonth } from '../utils';
 import { MONTHS } from '../constants';
 
 interface IndicatorsProps {
@@ -155,6 +156,23 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
   const dataNPS = useMemo(() => getSortedData('avgNps', filterNPS), [rankingData, filterNPS]);
   const dataTMA = useMemo(() => getSortedData('avgTmaSeconds', filterTMA), [rankingData, filterTMA]);
 
+  const handleExportReport = () => {
+    if (rankingData.length === 0) return;
+
+    const dataToExport = rankingData.map(op => ({
+      'Matrícula': op.registration,
+      'Nome': op.name,
+      'Atribuição': op.classification || '-',
+      'Mês': `${MONTHS[Number(selectedMonth) - 1]}/${selectedYear}`,
+      'TMA': op.avgTma,
+      'NPS': op.avgNps,
+      'Qualidade (%)': op.avgMonitoria,
+      'Status': op.active !== false ? 'Ativo' : 'Inativo'
+    }));
+
+    exportToCSV(dataToExport, `Relatorio_Geral_${MONTHS[Number(selectedMonth) - 1]}_${selectedYear}`);
+  };
+
   const filteredList = rankingData.filter(op =>
     op.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     op.registration.includes(searchTerm)
@@ -206,6 +224,16 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
             <option value={OperatorClassification.OUTROS}>Outros</option>
           </select>
         </div>
+
+        {userRole === Role.SUPERVISOR && (
+          <button
+            onClick={handleExportReport}
+            className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold shadow-sm hover:bg-emerald-700 transition-all text-sm"
+          >
+            <Download size={18} />
+            Exportar Relatório Excel
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
