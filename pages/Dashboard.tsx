@@ -56,7 +56,18 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
   // Filtra os KPIs baseados na seleção para os Cards e Rankings
   const currentPeriodKPIs = useMemo(() => {
     const targetKey = `${selectedYear}-${selectedMonth.padStart(2, '0')}`;
-    return activeOperators.flatMap(op => op.kpis.filter(k => k.month === targetKey));
+    // IMPORTANTE: Para cada operador no período, pegamos apenas o lançamento MAIS RECENTE daquele mês específico.
+    return activeOperators.flatMap(op => {
+      const monthKpis = op.kpis.filter(k => k.month === targetKey);
+      if (monthKpis.length === 0) return [];
+
+      // Ordena por createdAt desc e pega o primeiro
+      return monthKpis.sort((a, b) => {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+      }).slice(0, 1);
+    });
   }, [activeOperators, selectedMonth, selectedYear]);
 
   // Conta operadores únicos que tem KPIs no período

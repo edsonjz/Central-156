@@ -29,7 +29,7 @@ import {
   Check
 } from 'lucide-react';
 import { Operator, Role, KPI, Feedback, TeamGoals, OperatorClassification } from '../types';
-import { calculateAverageKPIs, getStatusColor, formatDecimal, generateSystemEmail } from '../utils';
+import { calculateAverageKPIs, getStatusColor, formatDecimal, generateSystemEmail, getLatestKPIsPerMonth } from '../utils';
 import { useAuth } from '../AuthContext';
 
 interface OperatorDetailProps {
@@ -251,18 +251,16 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
       tma: kpiForm.tma.trim() === '' ? null : kpiForm.tma,
       nps: kpiForm.nps === '' ? null : Number(kpiForm.nps),
       monitoria: kpiForm.monitoria === '' ? null : Number(kpiForm.monitoria),
-      month: kpiForm.month
+      month: kpiForm.month,
+      createdAt: new Date().toISOString() // Sempre registra o momento do lançamento
     };
 
     if (!operator) return;
 
-    let updatedKpis;
-    if (editingKPI) {
-      updatedKpis = operator.kpis.map(k => k.id === editingKPI.id ? { ...k, ...finalKPI } : k);
-    } else {
-      const newKpi: KPI = { id: Math.random().toString(), ...finalKPI };
-      updatedKpis = [...operator.kpis, newKpi].sort((a, b) => b.month.localeCompare(a.month));
-    }
+    // REGRA: Nunca altera um registro existente. Sempre cria um novo.
+    // O sistema usará o createdAt para decidir qual é o mais recente.
+    const newKpi: KPI = { id: Math.random().toString(), ...finalKPI };
+    const updatedKpis = [...operator.kpis, newKpi];
 
     // OTIMIZADO
     onSaveOperator({ ...operator, kpis: updatedKpis });
@@ -546,40 +544,56 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
                           </td>
                         </tr>
                       ) : (
-                        operator.kpis.map(kpi => (
-                          <tr key={kpi.id} className="border-b last:border-0 hover:bg-gray-50 transition-colors group">
-                            <td className="py-4 font-bold">{kpi.month}</td>
-                            <td className={`py-4 font-semibold ${getStatusColor(kpi.tma, goals.tma, 'lower')}`}>
-                              {kpi.tma || '-'}
-                            </td>
-                            <td className={`py-4 font-semibold ${getStatusColor(kpi.nps, goals.nps)}`}>
-                              {formatDecimal(kpi.nps)}
-                            </td>
-                            <td className={`py-4 font-semibold ${getStatusColor(kpi.monitoria, goals.monitoria)}`}>
-                              {formatDecimal(kpi.monitoria)}
-                            </td>
-                            {userRole === Role.SUPERVISOR && (
-                              <td className="py-4 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <button
-                                    onClick={() => handleOpenKPIModal(kpi)}
-                                    className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                                    title="Editar lançamento"
-                                  >
-                                    <Edit size={16} />
-                                  </button>
-                                  <button
-                                    onClick={() => handleDeleteKPI(kpi.id)}
-                                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                    title="Excluir lançamento"
-                                  >
-                                    <Trash2 size={16} />
-                                  </button>
-                                </div>
-                              </td>
-                            )}
-                          </tr>
-                        ))
+                        [...operator.kpis]
+                          .sort((a, b) => {
+                            // Primeiro pelo mês (desc)
+                            if (a.month !== b.month) return b.month.localeCompare(a.month);
+                            // Depois pela data de criação (desc) - mais recente primeiro
+                            const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                            const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                            return dateB - dateA;
+                          })
+                          .map((kpi, index, array) => {
+                            // Verifica se é o mais recente deste mês no array completo
+                            const latestOfThisMonth = getLatestKPIsPerMonth(operator.kpis).some(lk => lk.id === kpi.id);
+
+                            return (
+                              <tr key={kpi.id} className={`border-b last:border-0 hover:bg-gray-50 transition-colors group ${!latestOfThisMonth ? 'opacity-50' : ''}`}>
+                                <td className="py-4">
+                                  <div className="flex flex-col">
+                                    <span className="font-bold">{kpi.month}</span>
+                                    {latestOfThisMonth && (
+                                      <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded w-fit uppercase tracking-wider mt-1">
+                                        Oficial / Recente
+                                      </span>
+                                    )}
+                                    {!latestOfThisMonth && kpi.createdAt && (
+                                      <span className="text-[8px] text-gray-400 mt-0.5">
+                                        Lançado em: {new Date(kpi.createdAt).toLocaleString('pt-BR')}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className={`py-4 font-semibold ${getStatusColor(kpi.tma, goals.tma, 'lower')}`}>
+                                  {kpi.tma || '-'}
+                                </td>
+                                <td className={`py-4 font-semibold ${getStatusColor(kpi.nps, goals.nps)}`}>
+                                  {formatDecimal(kpi.nps)}
+                                </td>
+                                <td className={`py-4 font-semibold ${getStatusColor(kpi.monitoria, goals.monitoria)}`}>
+                                  {formatDecimal(kpi.monitoria)}
+                                </td>
+                                {userRole === Role.SUPERVISOR && (
+                                  <td className="py-4 text-right">
+                                    <div className="flex items-center justify-end gap-2 text-[10px] italic text-gray-400">
+                                      {/* Removidos botões de Editar e Excluir para preservar histórico conforme regra */}
+                                      {kpi.createdAt ? `Histórico ID: ${kpi.id.slice(-4)}` : 'Legado'}
+                                    </div>
+                                  </td>
+                                )}
+                              </tr>
+                            );
+                          })
                       )}
                     </tbody>
                   </table>

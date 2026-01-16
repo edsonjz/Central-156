@@ -26,6 +26,7 @@ export interface KPI {
   tma: string | null; // hh:mm:ss ou null
   nps: number | null; // ou null
   monitoria: number | null; // ou null
+  createdAt?: string; // Data/Hora do lançamento ISO
   [key: string]: any;
 }
 

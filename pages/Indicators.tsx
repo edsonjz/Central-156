@@ -107,12 +107,19 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
 
     return activeOps.map(op => {
       // Filtra KPI específico do mês
-      const kpis = op.kpis.filter(k => k.month === targetKey);
+      const monthKpis = op.kpis.filter(k => k.month === targetKey);
 
       // Se não tem KPI no mês, retorna null para ser filtrado depois (não entra no ranking)
-      if (kpis.length === 0) return null;
+      if (monthKpis.length === 0) return null;
 
-      const stats = calculateAverageKPIs(kpis);
+      // Pega apenas o MAIS RECENTE
+      const latestKpi = [...monthKpis].sort((a, b) => {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+      })[0];
+
+      const stats = calculateAverageKPIs([latestKpi]);
       return {
         ...op,
         shortName: op.name.split(' ')[0],
