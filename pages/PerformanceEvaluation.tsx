@@ -140,34 +140,53 @@ const CriterionCard: React.FC<{
     );
 };
 
-// Função para calcular nota de KPI
-const calculateKPIScore = (value: string | number | null, goal: string | number, type: 'lower' | 'higher'): number => {
-    if (value === null || value === undefined) return 3;
+// Função para calcular nota de TMA (tempo - menor é melhor)
+const calculateTMAScore = (value: string | null): number => {
+    if (!value) return 3;
 
-    if (type === 'lower' && typeof value === 'string' && typeof goal === 'string') {
-        const valueParts = value.split(':').map(Number);
-        const goalParts = goal.split(':').map(Number);
-        const valueSeconds = valueParts[0] * 3600 + valueParts[1] * 60 + (valueParts[2] || 0);
-        const goalSeconds = goalParts[0] * 3600 + goalParts[1] * 60 + (goalParts[2] || 0);
+    const parts = value.split(':').map(Number);
+    const totalSeconds = parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
 
-        const ratio = valueSeconds / goalSeconds;
-        if (ratio <= 0.7) return 5;
-        if (ratio <= 0.85) return 4;
-        if (ratio <= 1.15) return 3;
-        if (ratio <= 1.3) return 2;
-        return 1;
-    }
-
-    if (type === 'higher' && typeof value === 'number' && typeof goal === 'number') {
-        const ratio = value / goal;
-        if (ratio >= 1.2) return 5;
-        if (ratio >= 1.1) return 4;
-        if (ratio >= 0.9) return 3;
-        if (ratio >= 0.75) return 2;
-        return 1;
-    }
+    // Regras específicas para TMA
+    // 00:02:59 a 00:01:00 = 5 (muito acima do esperado)
+    if (totalSeconds >= 60 && totalSeconds <= 179) return 5;
+    // 00:03:59 a 00:03:00 = 4 (acima do esperado)
+    if (totalSeconds >= 180 && totalSeconds <= 239) return 4;
+    // 00:04:30 a 00:04:00 = 3 (dentro do esperado)
+    if (totalSeconds >= 240 && totalSeconds <= 270) return 3;
+    // 00:06:29 a 00:04:31 = 2 (abaixo do esperado)
+    if (totalSeconds >= 271 && totalSeconds <= 389) return 2;
+    // 00:20:00 a 00:06:30 = 1 (muito abaixo do esperado)
+    if (totalSeconds >= 390 && totalSeconds <= 1200) return 1;
+    // Fora dos ranges definidos
+    if (totalSeconds > 1200) return 1;
+    if (totalSeconds < 60) return 5;
 
     return 3;
+};
+
+// Função para calcular nota de NPS (maior é melhor)
+const calculateNPSScore = (value: number | null): number => {
+    if (value === null || value === undefined) return 3;
+
+    // Regras específicas para NPS
+    if (value >= 95) return 5; // 95 a 100 = muito acima do esperado
+    if (value >= 93) return 4; // 93 a 95 = acima do esperado
+    if (value >= 90) return 3; // 90 a 92 = dentro do esperado
+    if (value >= 84) return 2; // 84 a 89 = abaixo do esperado
+    return 1; // 70 a 83 = muito abaixo do esperado
+};
+
+// Função para calcular nota de Monitoria (maior é melhor)
+const calculateMonitoriaScore = (value: number | null): number => {
+    if (value === null || value === undefined) return 3;
+
+    // Regras específicas para Monitoria
+    if (value >= 99) return 5; // 99 a 100 = muito acima do esperado
+    if (value >= 96) return 4; // 96 a 98 = acima do esperado
+    if (value >= 90) return 3; // 90 a 95 = dentro do esperado
+    if (value >= 81) return 2; // 81 a 89 = abaixo do esperado
+    return 1; // 0 a 80 = muito abaixo do esperado
 };
 
 const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ operators, goals, userRole }) => {
@@ -253,9 +272,9 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
         }, kpisOfPeriod[0]);
 
         setKpiScores({
-            tma: calculateKPIScore(latestKpi.tma, goals.tma, 'lower'),
-            nps: calculateKPIScore(latestKpi.nps, goals.nps, 'higher'),
-            monitoria: calculateKPIScore(latestKpi.monitoria, goals.monitoria, 'higher')
+            tma: calculateTMAScore(latestKpi.tma),
+            nps: calculateNPSScore(latestKpi.nps),
+            monitoria: calculateMonitoriaScore(latestKpi.monitoria)
         });
     }, [selectedOperator, period, goals]);
 
@@ -346,7 +365,7 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
             }
         }
 
-        if (!pontosFortes.trim() || !pontosMelhoria.trim()) return false;
+        // Pontos fortes e melhoria agora são opcionais
 
         return true;
     };
