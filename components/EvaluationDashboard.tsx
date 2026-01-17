@@ -23,6 +23,7 @@ import {
     Filter,
     Calendar,
     Users,
+    User,
     TrendingUp,
     Award,
     FileSpreadsheet
@@ -56,6 +57,7 @@ const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({ operators }) 
         const now = new Date();
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     });
+    const [selectedOperatorFilter, setSelectedOperatorFilter] = useState('all');
 
     // Estado dos dados
     const [allEvaluations, setAllEvaluations] = useState<PerformanceEvaluation[]>([]);
@@ -67,12 +69,17 @@ const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({ operators }) 
 
         setIsLoading(true);
         try {
-            const { data, error } = await supabase
+            let query = supabase
                 .from('performance_evaluations')
                 .select('*')
                 .gte('period', startDate)
-                .lte('period', endDate)
-                .order('period', { ascending: true });
+                .lte('period', endDate);
+
+            if (selectedOperatorFilter !== 'all') {
+                query = query.eq('operator_registration', selectedOperatorFilter);
+            }
+
+            const { data, error } = await query.order('period', { ascending: true });
 
             if (error) throw error;
             setAllEvaluations(data || []);
@@ -81,7 +88,7 @@ const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({ operators }) 
         } finally {
             setIsLoading(false);
         }
-    }, [supabase, startDate, endDate]);
+    }, [supabase, startDate, endDate, selectedOperatorFilter]);
 
     useEffect(() => {
         loadAllEvaluations();
@@ -298,6 +305,26 @@ const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({ operators }) 
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex items-center gap-2">
+                            <User size={16} className="text-gray-400" />
+                            <select
+                                value={selectedOperatorFilter}
+                                onChange={(e) => setSelectedOperatorFilter(e.target.value)}
+                                className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 outline-none max-w-[200px]"
+                            >
+                                <option value="all">Toda Equipe</option>
+                                {operators
+                                    .filter(op => op.active)
+                                    .sort((a, b) => a.name.localeCompare(b.name))
+                                    .map(op => (
+                                        <option key={op.registration} value={op.registration}>
+                                            {op.name}
+                                        </option>
+                                    ))
+                                }
+                            </select>
+                        </div>
+
                         <div className="flex items-center gap-2">
                             <Filter size={16} className="text-gray-400" />
                             <input
