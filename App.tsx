@@ -11,7 +11,8 @@ import {
   AlertCircle,
   LogOut,
   UserCircle,
-  AlertTriangle
+  AlertTriangle,
+  ClipboardCheck
 } from 'lucide-react';
 
 import Dashboard from './pages/Dashboard';
@@ -21,6 +22,7 @@ import Indicators from './pages/Indicators';
 import TvMode from './pages/TvMode';
 import SettingsPage from './pages/Settings';
 import PendingIndicators from './pages/PendingIndicators';
+import PerformanceEvaluation from './pages/PerformanceEvaluation';
 import Login from './pages/Login';
 import { AuthProvider, useAuth } from './AuthContext';
 import { GOALS as INITIAL_GOALS } from './constants';
@@ -184,6 +186,9 @@ const AppContent: React.FC = () => {
                 <Link to="/settings" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
                   <Settings size={20} /> Configurações
                 </Link>
+                <Link to="/evaluation" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors">
+                  <ClipboardCheck size={20} /> Avaliação de Desempenho
+                </Link>
               </>
             )}
 
@@ -265,6 +270,7 @@ const AppContent: React.FC = () => {
                 <Route path="/indicators" element={<Indicators operators={operators} goals={goals} userRole={userRole!} />} />
                 <Route path="/pending" element={<PendingIndicators operators={operators} onUpdate={handleUpdateOperators} userRole={userRole!} />} />
                 <Route path="/settings" element={<SettingsPage goals={goals} onUpdateGoals={handleUpdateGoals} cloudConfig={null} onUpdateCloudConfig={() => { }} />} />
+                <Route path="/evaluation" element={<PerformanceEvaluation operators={operators} goals={goals} userRole={userRole!} />} />
               </>
             )}
 
