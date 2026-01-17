@@ -19,7 +19,8 @@ import {
     Trash2,
     Edit,
     Eye,
-    X
+    X,
+    BarChart3
 } from 'lucide-react';
 import {
     Operator,
@@ -33,6 +34,7 @@ import {
     Role
 } from '../types';
 import { useAuth } from '../AuthContext';
+import EvaluationDashboard from '../components/EvaluationDashboard';
 
 interface PerformanceEvaluationPageProps {
     operators: Operator[];
@@ -222,6 +224,9 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
     // Estado para visualização/edição de avaliação
     const [viewingEvaluation, setViewingEvaluation] = useState<PerformanceEvaluation | null>(null);
     const [isEditing, setIsEditing] = useState(false);
+
+    // Estado para alternar entre formulário e dashboard
+    const [viewMode, setViewMode] = useState<'form' | 'dashboard'>('form');
 
     // Operadores ativos filtrados
     const activeOperators = operators.filter(op => op.active);
@@ -467,439 +472,462 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                         <p className="text-sm text-gray-500">Avaliação 90° - Supervisor → Operador</p>
                     </div>
                 </div>
+
+                {/* Toggle View Mode */}
+                <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-xl">
+                    <button
+                        onClick={() => setViewMode('form')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'form' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        <ClipboardCheck size={18} />
+                        Avaliações
+                    </button>
+                    <button
+                        onClick={() => setViewMode('dashboard')}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'dashboard' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                        <BarChart3 size={18} />
+                        Dashboard
+                    </button>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Lista de Operadores */}
-                <div className="bg-white rounded-2xl border shadow-sm p-4 space-y-4">
-                    <div className="flex items-center justify-between">
-                        <h3 className="font-bold text-gray-900">Equipe</h3>
-                        <span className="text-xs text-gray-400 font-medium">{activeOperators.length} ativos</span>
-                    </div>
+            {viewMode === 'dashboard' ? (
+                <EvaluationDashboard operators={operators} />
+            ) : (
 
-                    <div className="relative">
-                        <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                            type="text"
-                            placeholder="Buscar operador..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 outline-none"
-                        />
-                    </div>
-
-                    <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                        {filteredOperators.map(op => {
-                            const hasEvalThisPeriod = evaluations.some(e => e.operator_registration === op.registration && e.period === period);
-
-                            return (
-                                <button
-                                    key={op.registration}
-                                    onClick={() => handleSelectOperator(op)}
-                                    className={`w-full p-3 rounded-xl text-left flex items-center gap-3 transition-all ${selectedOperator?.registration === op.registration
-                                        ? 'bg-blue-50 border-2 border-blue-500'
-                                        : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
-                                        }`}
-                                >
-                                    <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
-                                        {op.photoUrl ? (
-                                            <img src={op.photoUrl} alt={op.name} className="w-full h-full object-cover rounded-full" />
-                                        ) : (
-                                            op.name.charAt(0)
-                                        )}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="font-bold text-sm text-gray-900 truncate">{op.name}</p>
-                                        <p className="text-xs text-gray-500">#{op.registration}</p>
-                                    </div>
-                                    {hasEvalThisPeriod && (
-                                        <CheckCircle2 size={16} className="text-green-500 shrink-0" title="Já avaliado neste período" />
-                                    )}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                {/* Formulário de Avaliação */}
-                <div className="lg:col-span-2 space-y-6">
-                    {!selectedOperator ? (
-                        <div className="bg-white rounded-2xl border shadow-sm p-12 text-center">
-                            <User size={48} className="mx-auto text-gray-300 mb-4" />
-                            <h3 className="font-bold text-gray-700">Selecione um operador</h3>
-                            <p className="text-sm text-gray-400 mt-1">Escolha um operador na lista para iniciar a avaliação</p>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Lista de Operadores */}
+                    <div className="bg-white rounded-2xl border shadow-sm p-4 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h3 className="font-bold text-gray-900">Equipe</h3>
+                            <span className="text-xs text-gray-400 font-medium">{activeOperators.length} ativos</span>
                         </div>
-                    ) : (
-                        <>
-                            {/* Cabeçalho do operador selecionado */}
-                            <div className="bg-white rounded-2xl border shadow-sm p-6">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-14 h-14 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-bold text-xl">
-                                            {selectedOperator.photoUrl ? (
-                                                <img src={selectedOperator.photoUrl} alt={selectedOperator.name} className="w-full h-full object-cover rounded-2xl" />
+
+                        <div className="relative">
+                            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder="Buscar operador..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 outline-none"
+                            />
+                        </div>
+
+                        <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                            {filteredOperators.map(op => {
+                                const hasEvalThisPeriod = evaluations.some(e => e.operator_registration === op.registration && e.period === period);
+
+                                return (
+                                    <button
+                                        key={op.registration}
+                                        onClick={() => handleSelectOperator(op)}
+                                        className={`w-full p-3 rounded-xl text-left flex items-center gap-3 transition-all ${selectedOperator?.registration === op.registration
+                                            ? 'bg-blue-50 border-2 border-blue-500'
+                                            : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                                            }`}
+                                    >
+                                        <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                                            {op.photoUrl ? (
+                                                <img src={op.photoUrl} alt={op.name} className="w-full h-full object-cover rounded-full" />
                                             ) : (
-                                                selectedOperator.name.charAt(0)
+                                                op.name.charAt(0)
                                             )}
                                         </div>
-                                        <div>
-                                            <h2 className="font-bold text-lg text-gray-900">{selectedOperator.name}</h2>
-                                            <p className="text-sm text-gray-500">#{selectedOperator.registration} • {selectedOperator.role}</p>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="font-bold text-sm text-gray-900 truncate">{op.name}</p>
+                                            <p className="text-xs text-gray-500">#{op.registration}</p>
                                         </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-3">
-                                        {isEditing && (
-                                            <button
-                                                onClick={resetForm}
-                                                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200"
-                                            >
-                                                <X size={16} />
-                                                Cancelar Edição
-                                            </button>
+                                        {hasEvalThisPeriod && (
+                                            <CheckCircle2 size={16} className="text-green-500 shrink-0" title="Já avaliado neste período" />
                                         )}
-                                        <button
-                                            onClick={() => { setShowHistory(!showHistory); setViewingEvaluation(null); setIsEditing(false); }}
-                                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors ${showHistory ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-                                        >
-                                            <History size={16} />
-                                            Histórico
-                                        </button>
-                                    </div>
-                                </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
 
-                                {/* Período */}
-                                <div className="mt-6 flex items-center gap-4">
-                                    <label className="flex items-center gap-2 text-sm font-bold text-gray-600">
-                                        <Calendar size={16} />
-                                        Período de Avaliação:
-                                    </label>
-                                    <input
-                                        type="month"
-                                        value={period}
-                                        onChange={(e) => setPeriod(e.target.value)}
-                                        className="px-4 py-2 border rounded-xl text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none"
-                                        disabled={isEditing}
-                                    />
-                                </div>
+                    {/* Formulário de Avaliação */}
+                    <div className="lg:col-span-2 space-y-6">
+                        {!selectedOperator ? (
+                            <div className="bg-white rounded-2xl border shadow-sm p-12 text-center">
+                                <User size={48} className="mx-auto text-gray-300 mb-4" />
+                                <h3 className="font-bold text-gray-700">Selecione um operador</h3>
+                                <p className="text-sm text-gray-400 mt-1">Escolha um operador na lista para iniciar a avaliação</p>
                             </div>
-
-                            {showHistory ? (
-                                /* Histórico de Avaliações */
-                                <div className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
-                                    <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                                        <History size={18} className="text-blue-600" />
-                                        Histórico de Avaliações
-                                    </h3>
-
-                                    {isLoading ? (
-                                        <div className="py-8 text-center text-gray-400">Carregando...</div>
-                                    ) : evaluations.length === 0 ? (
-                                        <div className="py-8 text-center text-gray-400">
-                                            <ClipboardCheck size={40} className="mx-auto mb-2 opacity-30" />
-                                            Nenhuma avaliação registrada
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-3">
-                                            {evaluations.map((ev) => {
-                                                const scores = [
-                                                    ev.assiduidade, ev.qualidade_atendimento, ev.procedimentos,
-                                                    ev.conhecimento_tecnico, ev.produtividade, ev.organizacao,
-                                                    ev.comportamento, ev.trabalho_equipe, ev.adaptabilidade,
-                                                    ev.autonomia, ev.nota_tma, ev.nota_nps, ev.nota_monitoria
-                                                ].filter(s => s !== null) as number[];
-                                                const avg = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : '-';
-                                                const avgColor = Number(avg) >= 4 ? 'bg-green-500' : Number(avg) >= 3 ? 'bg-yellow-500' : 'bg-red-500';
-
-                                                return (
-                                                    <div key={ev.id} className="p-4 border rounded-xl bg-gray-50">
-                                                        <div className="flex items-center justify-between">
-                                                            <div>
-                                                                <p className="font-bold text-sm text-gray-900">
-                                                                    {new Date(ev.period + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
-                                                                </p>
-                                                                <p className="text-xs text-gray-500">
-                                                                    Por: {ev.evaluator_name} • {ev.created_at ? new Date(ev.created_at).toLocaleDateString('pt-BR') : ''}
-                                                                </p>
-                                                            </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <div className={`px-3 py-1.5 rounded-lg text-white font-bold ${avgColor}`}>
-                                                                    {avg}
-                                                                </div>
-                                                                {userRole === Role.SUPERVISOR && (
-                                                                    <>
-                                                                        <button
-                                                                            onClick={() => setViewingEvaluation(viewingEvaluation?.id === ev.id ? null : ev)}
-                                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                                                            title="Ver detalhes"
-                                                                        >
-                                                                            <Eye size={16} />
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={() => loadEvaluationForEdit(ev)}
-                                                                            className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                                                                            title="Editar avaliação"
-                                                                        >
-                                                                            <Edit size={16} />
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={() => handleDeleteEvaluation(ev)}
-                                                                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                                                            title="Excluir avaliação"
-                                                                        >
-                                                                            <Trash2 size={16} />
-                                                                        </button>
-                                                                    </>
-                                                                )}
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Detalhes expandidos */}
-                                                        {viewingEvaluation?.id === ev.id && (
-                                                            <div className="mt-4 pt-4 border-t space-y-4">
-                                                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                                                    {EVALUATION_CRITERIA_CONFIG.map(c => {
-                                                                        const val = (ev as any)[c.key];
-                                                                        const color = val ? RATING_SCALES[c.scaleType][val - 1]?.color : 'bg-gray-300';
-                                                                        return (
-                                                                            <div key={c.key} className="p-3 bg-white rounded-lg border">
-                                                                                <p className="text-[10px] font-bold text-gray-400 uppercase truncate">{c.label}</p>
-                                                                                <div className={`inline-block px-2 py-0.5 mt-1 rounded text-xs font-bold text-white ${color}`}>
-                                                                                    {val || '-'}
-                                                                                </div>
-                                                                            </div>
-                                                                        );
-                                                                    })}
-                                                                    <div className="p-3 bg-white rounded-lg border">
-                                                                        <p className="text-[10px] font-bold text-gray-400 uppercase">TMA (Auto)</p>
-                                                                        <div className={`inline-block px-2 py-0.5 mt-1 rounded text-xs font-bold text-white ${RATING_SCALES.professional[(ev.nota_tma || 3) - 1]?.color}`}>
-                                                                            {ev.nota_tma || '-'}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="p-3 bg-white rounded-lg border">
-                                                                        <p className="text-[10px] font-bold text-gray-400 uppercase">NPS (Auto)</p>
-                                                                        <div className={`inline-block px-2 py-0.5 mt-1 rounded text-xs font-bold text-white ${RATING_SCALES.professional[(ev.nota_nps || 3) - 1]?.color}`}>
-                                                                            {ev.nota_nps || '-'}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="p-3 bg-white rounded-lg border">
-                                                                        <p className="text-[10px] font-bold text-gray-400 uppercase">Monitoria (Auto)</p>
-                                                                        <div className={`inline-block px-2 py-0.5 mt-1 rounded text-xs font-bold text-white ${RATING_SCALES.professional[(ev.nota_monitoria || 3) - 1]?.color}`}>
-                                                                            {ev.nota_monitoria || '-'}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-
-                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                                    <div className="p-3 bg-green-50 rounded-lg border border-green-100">
-                                                                        <p className="text-xs font-bold text-green-700 uppercase mb-1">Pontos Fortes</p>
-                                                                        <p className="text-sm text-gray-700">{ev.pontos_fortes}</p>
-                                                                    </div>
-                                                                    <div className="p-3 bg-amber-50 rounded-lg border border-amber-100">
-                                                                        <p className="text-xs font-bold text-amber-700 uppercase mb-1">Pontos de Melhoria</p>
-                                                                        <p className="text-sm text-gray-700">{ev.pontos_melhoria}</p>
-                                                                    </div>
-                                                                </div>
-
-                                                                {ev.plano_desenvolvimento && (
-                                                                    <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
-                                                                        <p className="text-xs font-bold text-blue-700 uppercase mb-1">Plano de Desenvolvimento</p>
-                                                                        <p className="text-sm text-gray-700">{ev.plano_desenvolvimento}</p>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-                            ) : (
-                                <>
-                                    {/* Notas automáticas de KPIs */}
-                                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-100 p-6">
-                                        <h3 className="font-bold text-gray-900 flex items-center gap-2 mb-4">
-                                            <Target size={18} className="text-blue-600" />
-                                            Indicadores do Período (Calculados Automaticamente)
-                                        </h3>
-
-                                        <div className="grid grid-cols-3 gap-4">
-                                            <div className="bg-white/80 p-4 rounded-xl text-center">
-                                                <p className="text-xs font-bold text-gray-500 uppercase mb-1">TMA</p>
-                                                <div className={`text-2xl font-black ${RATING_SCALES.professional[kpiScores.tma - 1]?.color.replace('bg-', 'text-')}`}>
-                                                    {kpiScores.tma}
-                                                </div>
-                                                <p className="text-[10px] text-gray-400 mt-1">{RATING_SCALES.professional[kpiScores.tma - 1]?.label}</p>
-                                            </div>
-                                            <div className="bg-white/80 p-4 rounded-xl text-center">
-                                                <p className="text-xs font-bold text-gray-500 uppercase mb-1">NPS</p>
-                                                <div className={`text-2xl font-black ${RATING_SCALES.professional[kpiScores.nps - 1]?.color.replace('bg-', 'text-')}`}>
-                                                    {kpiScores.nps}
-                                                </div>
-                                                <p className="text-[10px] text-gray-400 mt-1">{RATING_SCALES.professional[kpiScores.nps - 1]?.label}</p>
-                                            </div>
-                                            <div className="bg-white/80 p-4 rounded-xl text-center">
-                                                <p className="text-xs font-bold text-gray-500 uppercase mb-1">Monitoria</p>
-                                                <div className={`text-2xl font-black ${RATING_SCALES.professional[kpiScores.monitoria - 1]?.color.replace('bg-', 'text-')}`}>
-                                                    {kpiScores.monitoria}
-                                                </div>
-                                                <p className="text-[10px] text-gray-400 mt-1">{RATING_SCALES.professional[kpiScores.monitoria - 1]?.label}</p>
-                                            </div>
-                                        </div>
-
-                                        <p className="text-xs text-blue-600 mt-4 flex items-center gap-1">
-                                            <Info size={12} />
-                                            Notas calculadas com base nos KPIs lançados para o período selecionado
-                                        </p>
-                                    </div>
-
-                                    {/* Critérios de Avaliação */}
-                                    <div className="space-y-3">
-                                        <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                                            <Star size={18} className="text-amber-500" />
-                                            Critérios de Avaliação Manual
-                                            {isEditing && <span className="text-xs text-blue-600 font-normal">(Editando avaliação existente)</span>}
-                                        </h3>
-
-                                        {EVALUATION_CRITERIA_CONFIG.map((criterion) => (
-                                            <CriterionCard
-                                                key={criterion.key}
-                                                criterion={criterion}
-                                                value={criteria[criterion.key] ?? null}
-                                                comment={comments[`comentario_${criterion.key}`] || ''}
-                                                onValueChange={(v) => setCriteria(prev => ({ ...prev, [criterion.key]: v }))}
-                                                onCommentChange={(c) => setComments(prev => ({ ...prev, [`comentario_${criterion.key}`]: c }))}
-                                                expanded={expandedCriteria === criterion.key}
-                                                onToggle={() => setExpandedCriteria(expandedCriteria === criterion.key ? null : criterion.key)}
-                                            />
-                                        ))}
-                                    </div>
-
-                                    {/* Campos Complementares */}
-                                    <div className="bg-white rounded-2xl border shadow-sm p-6 space-y-6">
-                                        <h3 className="font-bold text-gray-900 flex items-center gap-2">
-                                            <MessageSquare size={18} className="text-green-600" />
-                                            Campos Complementares
-                                        </h3>
-
-                                        <div className="space-y-4">
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                                                    Pontos Fortes do Operador <span className="text-red-500">*</span>
-                                                </label>
-                                                <textarea
-                                                    value={pontosFortes}
-                                                    onChange={(e) => setPontosFortes(e.target.value)}
-                                                    placeholder="Destaque as principais qualidades e competências do operador..."
-                                                    className="w-full p-4 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 outline-none resize-none"
-                                                    rows={3}
-                                                />
-                                            </div>
-
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                                                    Pontos de Melhoria <span className="text-red-500">*</span>
-                                                </label>
-                                                <textarea
-                                                    value={pontosMelhoria}
-                                                    onChange={(e) => setPontosMelhoria(e.target.value)}
-                                                    placeholder="Identifique comportamentos ou resultados que precisam de desenvolvimento..."
-                                                    className="w-full p-4 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 outline-none resize-none"
-                                                    rows={3}
-                                                />
-                                            </div>
-
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                                                    Plano de Desenvolvimento Sugerido
-                                                </label>
-                                                <div className="flex flex-wrap gap-2 mb-3">
-                                                    {DEVELOPMENT_PLAN_OPTIONS.map((opt) => (
-                                                        <button
-                                                            key={opt}
-                                                            type="button"
-                                                            onClick={() => setPlanoDesenvolvimento(prev =>
-                                                                prev.includes(opt)
-                                                                    ? prev.replace(opt + ', ', '').replace(', ' + opt, '').replace(opt, '')
-                                                                    : prev ? prev + ', ' + opt : opt
-                                                            )}
-                                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${planoDesenvolvimento.includes(opt)
-                                                                ? 'bg-blue-600 text-white'
-                                                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                                                }`}
-                                                        >
-                                                            {opt}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                                <textarea
-                                                    value={planoDesenvolvimento}
-                                                    onChange={(e) => setPlanoDesenvolvimento(e.target.value)}
-                                                    placeholder="Descreva ações específicas ou adicione mais sugestões..."
-                                                    className="w-full p-4 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 outline-none resize-none"
-                                                    rows={2}
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Resumo e Botão Salvar */}
-                                    <div className="bg-white rounded-2xl border shadow-sm p-6">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <p className="text-xs font-bold text-gray-400 uppercase">Nota Geral Prévia</p>
-                                                <p className={`text-3xl font-black ${overallColor}`}>
-                                                    {overallScore > 0 ? overallScore.toFixed(1) : '-'}
-                                                </p>
-                                                <p className="text-xs text-gray-500 mt-1">
-                                                    {Object.values(criteria).filter(v => v !== null).length}/10 critérios preenchidos
-                                                </p>
-                                            </div>
-
-                                            <button
-                                                onClick={handleSave}
-                                                disabled={!isFormValid() || isSaving}
-                                                className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-bold transition-all ${isFormValid() && !isSaving
-                                                    ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg'
-                                                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                                                    }`}
-                                            >
-                                                {isSaving ? (
-                                                    <>
-                                                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                                        Salvando...
-                                                    </>
+                        ) : (
+                            <>
+                                {/* Cabeçalho do operador selecionado */}
+                                <div className="bg-white rounded-2xl border shadow-sm p-6">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-14 h-14 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-bold text-xl">
+                                                {selectedOperator.photoUrl ? (
+                                                    <img src={selectedOperator.photoUrl} alt={selectedOperator.name} className="w-full h-full object-cover rounded-2xl" />
                                                 ) : (
-                                                    <>
-                                                        <Save size={20} />
-                                                        {isEditing ? 'Atualizar Avaliação' : 'Salvar Avaliação'}
-                                                    </>
+                                                    selectedOperator.name.charAt(0)
                                                 )}
+                                            </div>
+                                            <div>
+                                                <h2 className="font-bold text-lg text-gray-900">{selectedOperator.name}</h2>
+                                                <p className="text-sm text-gray-500">#{selectedOperator.registration} • {selectedOperator.role}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-3">
+                                            {isEditing && (
+                                                <button
+                                                    onClick={resetForm}
+                                                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                                >
+                                                    <X size={16} />
+                                                    Cancelar Edição
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => { setShowHistory(!showHistory); setViewingEvaluation(null); setIsEditing(false); }}
+                                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors ${showHistory ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                                            >
+                                                <History size={16} />
+                                                Histórico
                                             </button>
                                         </div>
+                                    </div>
 
-                                        {!isFormValid() && (
-                                            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700 flex items-start gap-2">
-                                                <AlertCircle size={16} className="shrink-0 mt-0.5" />
-                                                <div>
-                                                    <strong>Para salvar a avaliação:</strong>
-                                                    <ul className="list-disc ml-4 mt-1 space-y-0.5">
-                                                        {Object.values(criteria).filter(v => v !== null).length < 10 && <li>Preencha todos os 10 critérios de avaliação</li>}
-                                                        {EVALUATION_CRITERIA_CONFIG.some(c => (criteria[c.key] === 1 || criteria[c.key] === 5) && !comments[`comentario_${c.key}`]?.trim()) && <li>Adicione comentários para notas 1 ou 5</li>}
-                                                        {!pontosFortes.trim() && <li>Preencha os pontos fortes</li>}
-                                                        {!pontosMelhoria.trim() && <li>Preencha os pontos de melhoria</li>}
-                                                    </ul>
-                                                </div>
+                                    {/* Período */}
+                                    <div className="mt-6 flex items-center gap-4">
+                                        <label className="flex items-center gap-2 text-sm font-bold text-gray-600">
+                                            <Calendar size={16} />
+                                            Período de Avaliação:
+                                        </label>
+                                        <input
+                                            type="month"
+                                            value={period}
+                                            onChange={(e) => setPeriod(e.target.value)}
+                                            className="px-4 py-2 border rounded-xl text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                            disabled={isEditing}
+                                        />
+                                    </div>
+                                </div>
+
+                                {showHistory ? (
+                                    /* Histórico de Avaliações */
+                                    <div className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
+                                        <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                                            <History size={18} className="text-blue-600" />
+                                            Histórico de Avaliações
+                                        </h3>
+
+                                        {isLoading ? (
+                                            <div className="py-8 text-center text-gray-400">Carregando...</div>
+                                        ) : evaluations.length === 0 ? (
+                                            <div className="py-8 text-center text-gray-400">
+                                                <ClipboardCheck size={40} className="mx-auto mb-2 opacity-30" />
+                                                Nenhuma avaliação registrada
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                {evaluations.map((ev) => {
+                                                    const scores = [
+                                                        ev.assiduidade, ev.qualidade_atendimento, ev.procedimentos,
+                                                        ev.conhecimento_tecnico, ev.produtividade, ev.organizacao,
+                                                        ev.comportamento, ev.trabalho_equipe, ev.adaptabilidade,
+                                                        ev.autonomia, ev.nota_tma, ev.nota_nps, ev.nota_monitoria
+                                                    ].filter(s => s !== null) as number[];
+                                                    const avg = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : '-';
+                                                    const avgColor = Number(avg) >= 4 ? 'bg-green-500' : Number(avg) >= 3 ? 'bg-yellow-500' : 'bg-red-500';
+
+                                                    return (
+                                                        <div key={ev.id} className="p-4 border rounded-xl bg-gray-50">
+                                                            <div className="flex items-center justify-between">
+                                                                <div>
+                                                                    <p className="font-bold text-sm text-gray-900">
+                                                                        {new Date(ev.period + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                                                                    </p>
+                                                                    <p className="text-xs text-gray-500">
+                                                                        Por: {ev.evaluator_name} • {ev.created_at ? new Date(ev.created_at).toLocaleDateString('pt-BR') : ''}
+                                                                    </p>
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className={`px-3 py-1.5 rounded-lg text-white font-bold ${avgColor}`}>
+                                                                        {avg}
+                                                                    </div>
+                                                                    {userRole === Role.SUPERVISOR && (
+                                                                        <>
+                                                                            <button
+                                                                                onClick={() => setViewingEvaluation(viewingEvaluation?.id === ev.id ? null : ev)}
+                                                                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                                title="Ver detalhes"
+                                                                            >
+                                                                                <Eye size={16} />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => loadEvaluationForEdit(ev)}
+                                                                                className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                                                                title="Editar avaliação"
+                                                                            >
+                                                                                <Edit size={16} />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => handleDeleteEvaluation(ev)}
+                                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                                                title="Excluir avaliação"
+                                                                            >
+                                                                                <Trash2 size={16} />
+                                                                            </button>
+                                                                        </>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Detalhes expandidos */}
+                                                            {viewingEvaluation?.id === ev.id && (
+                                                                <div className="mt-4 pt-4 border-t space-y-4">
+                                                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                                                        {EVALUATION_CRITERIA_CONFIG.map(c => {
+                                                                            const val = (ev as any)[c.key];
+                                                                            const color = val ? RATING_SCALES[c.scaleType][val - 1]?.color : 'bg-gray-300';
+                                                                            return (
+                                                                                <div key={c.key} className="p-3 bg-white rounded-lg border">
+                                                                                    <p className="text-[10px] font-bold text-gray-400 uppercase truncate">{c.label}</p>
+                                                                                    <div className={`inline-block px-2 py-0.5 mt-1 rounded text-xs font-bold text-white ${color}`}>
+                                                                                        {val || '-'}
+                                                                                    </div>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                        <div className="p-3 bg-white rounded-lg border">
+                                                                            <p className="text-[10px] font-bold text-gray-400 uppercase">TMA (Auto)</p>
+                                                                            <div className={`inline-block px-2 py-0.5 mt-1 rounded text-xs font-bold text-white ${RATING_SCALES.professional[(ev.nota_tma || 3) - 1]?.color}`}>
+                                                                                {ev.nota_tma || '-'}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="p-3 bg-white rounded-lg border">
+                                                                            <p className="text-[10px] font-bold text-gray-400 uppercase">NPS (Auto)</p>
+                                                                            <div className={`inline-block px-2 py-0.5 mt-1 rounded text-xs font-bold text-white ${RATING_SCALES.professional[(ev.nota_nps || 3) - 1]?.color}`}>
+                                                                                {ev.nota_nps || '-'}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="p-3 bg-white rounded-lg border">
+                                                                            <p className="text-[10px] font-bold text-gray-400 uppercase">Monitoria (Auto)</p>
+                                                                            <div className={`inline-block px-2 py-0.5 mt-1 rounded text-xs font-bold text-white ${RATING_SCALES.professional[(ev.nota_monitoria || 3) - 1]?.color}`}>
+                                                                                {ev.nota_monitoria || '-'}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                        <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+                                                                            <p className="text-xs font-bold text-green-700 uppercase mb-1">Pontos Fortes</p>
+                                                                            <p className="text-sm text-gray-700">{ev.pontos_fortes}</p>
+                                                                        </div>
+                                                                        <div className="p-3 bg-amber-50 rounded-lg border border-amber-100">
+                                                                            <p className="text-xs font-bold text-amber-700 uppercase mb-1">Pontos de Melhoria</p>
+                                                                            <p className="text-sm text-gray-700">{ev.pontos_melhoria}</p>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {ev.plano_desenvolvimento && (
+                                                                        <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                                                                            <p className="text-xs font-bold text-blue-700 uppercase mb-1">Plano de Desenvolvimento</p>
+                                                                            <p className="text-sm text-gray-700">{ev.plano_desenvolvimento}</p>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         )}
                                     </div>
-                                </>
-                            )}
-                        </>
-                    )}
+                                ) : (
+                                    <>
+                                        {/* Notas automáticas de KPIs */}
+                                        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-100 p-6">
+                                            <h3 className="font-bold text-gray-900 flex items-center gap-2 mb-4">
+                                                <Target size={18} className="text-blue-600" />
+                                                Indicadores do Período (Calculados Automaticamente)
+                                            </h3>
+
+                                            <div className="grid grid-cols-3 gap-4">
+                                                <div className="bg-white/80 p-4 rounded-xl text-center">
+                                                    <p className="text-xs font-bold text-gray-500 uppercase mb-1">TMA</p>
+                                                    <div className={`text-2xl font-black ${RATING_SCALES.professional[kpiScores.tma - 1]?.color.replace('bg-', 'text-')}`}>
+                                                        {kpiScores.tma}
+                                                    </div>
+                                                    <p className="text-[10px] text-gray-400 mt-1">{RATING_SCALES.professional[kpiScores.tma - 1]?.label}</p>
+                                                </div>
+                                                <div className="bg-white/80 p-4 rounded-xl text-center">
+                                                    <p className="text-xs font-bold text-gray-500 uppercase mb-1">NPS</p>
+                                                    <div className={`text-2xl font-black ${RATING_SCALES.professional[kpiScores.nps - 1]?.color.replace('bg-', 'text-')}`}>
+                                                        {kpiScores.nps}
+                                                    </div>
+                                                    <p className="text-[10px] text-gray-400 mt-1">{RATING_SCALES.professional[kpiScores.nps - 1]?.label}</p>
+                                                </div>
+                                                <div className="bg-white/80 p-4 rounded-xl text-center">
+                                                    <p className="text-xs font-bold text-gray-500 uppercase mb-1">Monitoria</p>
+                                                    <div className={`text-2xl font-black ${RATING_SCALES.professional[kpiScores.monitoria - 1]?.color.replace('bg-', 'text-')}`}>
+                                                        {kpiScores.monitoria}
+                                                    </div>
+                                                    <p className="text-[10px] text-gray-400 mt-1">{RATING_SCALES.professional[kpiScores.monitoria - 1]?.label}</p>
+                                                </div>
+                                            </div>
+
+                                            <p className="text-xs text-blue-600 mt-4 flex items-center gap-1">
+                                                <Info size={12} />
+                                                Notas calculadas com base nos KPIs lançados para o período selecionado
+                                            </p>
+                                        </div>
+
+                                        {/* Critérios de Avaliação */}
+                                        <div className="space-y-3">
+                                            <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                                                <Star size={18} className="text-amber-500" />
+                                                Critérios de Avaliação Manual
+                                                {isEditing && <span className="text-xs text-blue-600 font-normal">(Editando avaliação existente)</span>}
+                                            </h3>
+
+                                            {EVALUATION_CRITERIA_CONFIG.map((criterion) => (
+                                                <CriterionCard
+                                                    key={criterion.key}
+                                                    criterion={criterion}
+                                                    value={criteria[criterion.key] ?? null}
+                                                    comment={comments[`comentario_${criterion.key}`] || ''}
+                                                    onValueChange={(v) => setCriteria(prev => ({ ...prev, [criterion.key]: v }))}
+                                                    onCommentChange={(c) => setComments(prev => ({ ...prev, [`comentario_${criterion.key}`]: c }))}
+                                                    expanded={expandedCriteria === criterion.key}
+                                                    onToggle={() => setExpandedCriteria(expandedCriteria === criterion.key ? null : criterion.key)}
+                                                />
+                                            ))}
+                                        </div>
+
+                                        {/* Campos Complementares */}
+                                        <div className="bg-white rounded-2xl border shadow-sm p-6 space-y-6">
+                                            <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                                                <MessageSquare size={18} className="text-green-600" />
+                                                Campos Complementares
+                                            </h3>
+
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                                                        Pontos Fortes do Operador <span className="text-red-500">*</span>
+                                                    </label>
+                                                    <textarea
+                                                        value={pontosFortes}
+                                                        onChange={(e) => setPontosFortes(e.target.value)}
+                                                        placeholder="Destaque as principais qualidades e competências do operador..."
+                                                        className="w-full p-4 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 outline-none resize-none"
+                                                        rows={3}
+                                                    />
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                                                        Pontos de Melhoria <span className="text-red-500">*</span>
+                                                    </label>
+                                                    <textarea
+                                                        value={pontosMelhoria}
+                                                        onChange={(e) => setPontosMelhoria(e.target.value)}
+                                                        placeholder="Identifique comportamentos ou resultados que precisam de desenvolvimento..."
+                                                        className="w-full p-4 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 outline-none resize-none"
+                                                        rows={3}
+                                                    />
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                                                        Plano de Desenvolvimento Sugerido
+                                                    </label>
+                                                    <div className="flex flex-wrap gap-2 mb-3">
+                                                        {DEVELOPMENT_PLAN_OPTIONS.map((opt) => (
+                                                            <button
+                                                                key={opt}
+                                                                type="button"
+                                                                onClick={() => setPlanoDesenvolvimento(prev =>
+                                                                    prev.includes(opt)
+                                                                        ? prev.replace(opt + ', ', '').replace(', ' + opt, '').replace(opt, '')
+                                                                        : prev ? prev + ', ' + opt : opt
+                                                                )}
+                                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${planoDesenvolvimento.includes(opt)
+                                                                    ? 'bg-blue-600 text-white'
+                                                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                                    }`}
+                                                            >
+                                                                {opt}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                    <textarea
+                                                        value={planoDesenvolvimento}
+                                                        onChange={(e) => setPlanoDesenvolvimento(e.target.value)}
+                                                        placeholder="Descreva ações específicas ou adicione mais sugestões..."
+                                                        className="w-full p-4 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 outline-none resize-none"
+                                                        rows={2}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Resumo e Botão Salvar */}
+                                        <div className="bg-white rounded-2xl border shadow-sm p-6">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <p className="text-xs font-bold text-gray-400 uppercase">Nota Geral Prévia</p>
+                                                    <p className={`text-3xl font-black ${overallColor}`}>
+                                                        {overallScore > 0 ? overallScore.toFixed(1) : '-'}
+                                                    </p>
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        {Object.values(criteria).filter(v => v !== null).length}/10 critérios preenchidos
+                                                    </p>
+                                                </div>
+
+                                                <button
+                                                    onClick={handleSave}
+                                                    disabled={!isFormValid() || isSaving}
+                                                    className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-bold transition-all ${isFormValid() && !isSaving
+                                                        ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg'
+                                                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                                        }`}
+                                                >
+                                                    {isSaving ? (
+                                                        <>
+                                                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                                            Salvando...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Save size={20} />
+                                                            {isEditing ? 'Atualizar Avaliação' : 'Salvar Avaliação'}
+                                                        </>
+                                                    )}
+                                                </button>
+                                            </div>
+
+                                            {!isFormValid() && (
+                                                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700 flex items-start gap-2">
+                                                    <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                                                    <div>
+                                                        <strong>Para salvar a avaliação:</strong>
+                                                        <ul className="list-disc ml-4 mt-1 space-y-0.5">
+                                                            {Object.values(criteria).filter(v => v !== null).length < 10 && <li>Preencha todos os 10 critérios de avaliação</li>}
+                                                            {EVALUATION_CRITERIA_CONFIG.some(c => (criteria[c.key] === 1 || criteria[c.key] === 5) && !comments[`comentario_${c.key}`]?.trim()) && <li>Adicione comentários para notas 1 ou 5</li>}
+                                                            {!pontosFortes.trim() && <li>Preencha os pontos fortes</li>}
+                                                            {!pontosMelhoria.trim() && <li>Preencha os pontos de melhoria</li>}
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                            </>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 };
