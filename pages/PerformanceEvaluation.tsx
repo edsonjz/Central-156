@@ -9,15 +9,17 @@ import {
     ChevronDown,
     ChevronUp,
     Info,
-    TrendingUp,
     Calendar,
     User,
     Search,
     CheckCircle2,
-    XCircle,
     History,
     Target,
-    MessageSquare
+    MessageSquare,
+    Trash2,
+    Edit,
+    Eye,
+    X
 } from 'lucide-react';
 import {
     Operator,
@@ -55,14 +57,10 @@ const RatingSelector: React.FC<{
                     type="button"
                     onClick={() => !disabled && onChange(item.value)}
                     disabled={disabled}
-                    className={`
-            relative px-3 py-2 rounded-lg text-xs font-bold transition-all border-2
-            ${value === item.value
-                            ? `${item.color} text-white border-transparent shadow-lg scale-105`
-                            : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
-                        }
-            ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-          `}
+                    className={`relative px-3 py-2 rounded-lg text-xs font-bold transition-all border-2 ${value === item.value
+                        ? `${item.color} text-white border-transparent shadow-lg scale-105`
+                        : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+                        } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                     title={item.label}
                 >
                     <span className="flex items-center gap-1.5">
@@ -84,17 +82,15 @@ const CriterionCard: React.FC<{
     onCommentChange: (comment: string) => void;
     expanded: boolean;
     onToggle: () => void;
-}> = ({ criterion, value, comment, onValueChange, onCommentChange, expanded, onToggle }) => {
+    readOnly?: boolean;
+}> = ({ criterion, value, comment, onValueChange, onCommentChange, expanded, onToggle, readOnly }) => {
     const needsComment = value === 1 || value === 5;
     const scale = RATING_SCALES[criterion.scaleType];
     const selectedLabel = value ? scale.find(s => s.value === value)?.label : null;
 
     return (
         <div className={`bg-white rounded-2xl border transition-all ${expanded ? 'shadow-md border-blue-200' : 'shadow-sm border-gray-100'}`}>
-            <button
-                onClick={onToggle}
-                className="w-full p-4 flex items-center justify-between text-left"
-            >
+            <button onClick={onToggle} className="w-full p-4 flex items-center justify-between text-left">
                 <div className="flex-1">
                     <h4 className="font-bold text-gray-900 text-sm">{criterion.label}</h4>
                     <p className="text-xs text-gray-500 mt-0.5">{criterion.question}</p>
@@ -111,41 +107,30 @@ const CriterionCard: React.FC<{
 
             {expanded && (
                 <div className="px-4 pb-4 space-y-4 border-t pt-4">
-                    {/* Indicadores */}
                     <div className="flex flex-wrap gap-2">
                         {criterion.indicators.map((ind, i) => (
-                            <span key={i} className="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-medium rounded-full">
-                                {ind}
-                            </span>
+                            <span key={i} className="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-medium rounded-full">{ind}</span>
                         ))}
                     </div>
 
-                    {/* Seletor de nota */}
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Nota</label>
-                        <RatingSelector
-                            value={value}
-                            onChange={onValueChange}
-                            scaleType={criterion.scaleType}
-                        />
+                        <RatingSelector value={value} onChange={onValueChange} scaleType={criterion.scaleType} disabled={readOnly} />
                     </div>
 
-                    {/* Campo de comentário (obrigatório para 1 e 5) */}
                     {needsComment && (
                         <div>
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-2 flex items-center gap-2">
                                 <AlertCircle size={14} className="text-amber-500" />
-                                Comentário obrigatório (nota {value})
+                                Comentário {readOnly ? '' : 'obrigatório'} (nota {value})
                             </label>
                             <textarea
                                 value={comment}
                                 onChange={(e) => onCommentChange(e.target.value)}
-                                placeholder={value === 1
-                                    ? "Descreva os motivos da nota baixa e sugestões de melhoria..."
-                                    : "Destaque os pontos que justificam a excelência..."
-                                }
+                                placeholder={value === 1 ? "Descreva os motivos da nota baixa..." : "Destaque os pontos que justificam a excelência..."}
                                 className="w-full p-3 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 outline-none resize-none bg-amber-50 border-amber-200"
                                 rows={3}
+                                readOnly={readOnly}
                             />
                         </div>
                     )}
@@ -159,7 +144,6 @@ const CriterionCard: React.FC<{
 const calculateKPIScore = (value: string | number | null, goal: string | number, type: 'lower' | 'higher'): number => {
     if (value === null || value === undefined) return 3;
 
-    // Para TMA (tempo - menor é melhor)
     if (type === 'lower' && typeof value === 'string' && typeof goal === 'string') {
         const valueParts = value.split(':').map(Number);
         const goalParts = goal.split(':').map(Number);
@@ -174,7 +158,6 @@ const calculateKPIScore = (value: string | number | null, goal: string | number,
         return 1;
     }
 
-    // Para NPS e Monitoria (maior é melhor)
     if (type === 'higher' && typeof value === 'number' && typeof goal === 'number') {
         const ratio = value / goal;
         if (ratio >= 1.2) return 5;
@@ -216,6 +199,10 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
     const [isLoading, setIsLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [showHistory, setShowHistory] = useState(false);
+
+    // Estado para visualização/edição de avaliação
+    const [viewingEvaluation, setViewingEvaluation] = useState<PerformanceEvaluation | null>(null);
+    const [isEditing, setIsEditing] = useState(false);
 
     // Operadores ativos filtrados
     const activeOperators = operators.filter(op => op.active);
@@ -259,7 +246,6 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
             return;
         }
 
-        // Pegar o mais recente do período
         const latestKpi = kpisOfPeriod.reduce((latest, current) => {
             if (!latest.createdAt) return current;
             if (!current.createdAt) return latest;
@@ -281,6 +267,8 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
         setPontosMelhoria('');
         setPlanoDesenvolvimento('');
         setExpandedCriteria(null);
+        setViewingEvaluation(null);
+        setIsEditing(false);
     };
 
     // Selecionar operador
@@ -290,13 +278,67 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
         setShowHistory(false);
     };
 
+    // Carregar avaliação para edição
+    const loadEvaluationForEdit = (ev: PerformanceEvaluation) => {
+        setViewingEvaluation(ev);
+        setIsEditing(true);
+        setCriteria({
+            assiduidade: ev.assiduidade,
+            qualidade_atendimento: ev.qualidade_atendimento,
+            procedimentos: ev.procedimentos,
+            conhecimento_tecnico: ev.conhecimento_tecnico,
+            produtividade: ev.produtividade,
+            organizacao: ev.organizacao,
+            comportamento: ev.comportamento,
+            trabalho_equipe: ev.trabalho_equipe,
+            adaptabilidade: ev.adaptabilidade,
+            autonomia: ev.autonomia
+        });
+        setComments({
+            comentario_assiduidade: ev.comentario_assiduidade || '',
+            comentario_qualidade: ev.comentario_qualidade || '',
+            comentario_procedimentos: ev.comentario_procedimentos || '',
+            comentario_conhecimento: ev.comentario_conhecimento || '',
+            comentario_produtividade: ev.comentario_produtividade || '',
+            comentario_organizacao: ev.comentario_organizacao || '',
+            comentario_comportamento: ev.comentario_comportamento || '',
+            comentario_equipe: ev.comentario_equipe || '',
+            comentario_adaptabilidade: ev.comentario_adaptabilidade || '',
+            comentario_autonomia: ev.comentario_autonomia || ''
+        });
+        setPontosFortes(ev.pontos_fortes || '');
+        setPontosMelhoria(ev.pontos_melhoria || '');
+        setPlanoDesenvolvimento(ev.plano_desenvolvimento || '');
+        setPeriod(ev.period);
+        setShowHistory(false);
+    };
+
+    // Excluir avaliação
+    const handleDeleteEvaluation = async (ev: PerformanceEvaluation) => {
+        if (!supabase) return;
+        if (!window.confirm('Tem certeza que deseja excluir esta avaliação permanentemente?')) return;
+
+        try {
+            const { error } = await supabase
+                .from('performance_evaluations')
+                .delete()
+                .eq('id', ev.id);
+
+            if (error) throw error;
+            alert('Avaliação excluída com sucesso!');
+            loadEvaluations();
+            setViewingEvaluation(null);
+        } catch (err: any) {
+            console.error('Erro ao excluir:', err);
+            alert(`Erro ao excluir: ${err.message}`);
+        }
+    };
+
     // Validação do form
     const isFormValid = () => {
-        // Todos os critérios devem ter nota
         const allCriteriaFilled = EVALUATION_CRITERIA_CONFIG.every(c => criteria[c.key] !== null && criteria[c.key] !== undefined);
         if (!allCriteriaFilled) return false;
 
-        // Comentários obrigatórios para notas 1 e 5
         for (const c of EVALUATION_CRITERIA_CONFIG) {
             const value = criteria[c.key];
             if ((value === 1 || value === 5) && !comments[`comentario_${c.key}`]?.trim()) {
@@ -304,26 +346,23 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
             }
         }
 
-        // Campos complementares obrigatórios
         if (!pontosFortes.trim() || !pontosMelhoria.trim()) return false;
 
         return true;
     };
 
-    // Salvar avaliação
+    // Salvar avaliação (nova ou edição)
     const handleSave = async () => {
         if (!supabase || !selectedOperator || !isFormValid()) return;
 
         setIsSaving(true);
         try {
-            const evaluation: Partial<PerformanceEvaluation> = {
+            const evaluationData: any = {
                 operator_registration: selectedOperator.registration,
                 evaluator_id: user?.id,
                 evaluator_name: userProfile?.name || user?.email || 'Supervisor',
                 evaluation_type: EvaluationType.GRAUS_90,
                 period,
-
-                // Critérios manuais
                 assiduidade: criteria.assiduidade ?? null,
                 qualidade_atendimento: criteria.qualidade_atendimento ?? null,
                 procedimentos: criteria.procedimentos ?? null,
@@ -334,13 +373,9 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                 trabalho_equipe: criteria.trabalho_equipe ?? null,
                 adaptabilidade: criteria.adaptabilidade ?? null,
                 autonomia: criteria.autonomia ?? null,
-
-                // KPIs automáticos
                 nota_tma: kpiScores.tma,
                 nota_nps: kpiScores.nps,
                 nota_monitoria: kpiScores.monitoria,
-
-                // Comentários
                 comentario_assiduidade: comments.comentario_assiduidade || null,
                 comentario_qualidade: comments.comentario_qualidade || null,
                 comentario_procedimentos: comments.comentario_procedimentos || null,
@@ -351,20 +386,30 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                 comentario_equipe: comments.comentario_equipe || null,
                 comentario_adaptabilidade: comments.comentario_adaptabilidade || null,
                 comentario_autonomia: comments.comentario_autonomia || null,
-
-                // Campos complementares
                 pontos_fortes: pontosFortes,
                 pontos_melhoria: pontosMelhoria,
                 plano_desenvolvimento: planoDesenvolvimento || null
             };
 
-            const { error } = await supabase
-                .from('performance_evaluations')
-                .insert([evaluation]);
+            let error;
+            if (isEditing && viewingEvaluation) {
+                // Update existing
+                const result = await supabase
+                    .from('performance_evaluations')
+                    .update(evaluationData)
+                    .eq('id', viewingEvaluation.id);
+                error = result.error;
+            } else {
+                // Insert new
+                const result = await supabase
+                    .from('performance_evaluations')
+                    .insert([evaluationData]);
+                error = result.error;
+            }
 
             if (error) throw error;
 
-            alert('Avaliação salva com sucesso!');
+            alert(isEditing ? 'Avaliação atualizada com sucesso!' : 'Avaliação salva com sucesso!');
             resetForm();
             loadEvaluations();
 
@@ -433,8 +478,8 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                                     key={op.registration}
                                     onClick={() => handleSelectOperator(op)}
                                     className={`w-full p-3 rounded-xl text-left flex items-center gap-3 transition-all ${selectedOperator?.registration === op.registration
-                                            ? 'bg-blue-50 border-2 border-blue-500'
-                                            : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                                        ? 'bg-blue-50 border-2 border-blue-500'
+                                        : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
                                         }`}
                                 >
                                     <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
@@ -485,10 +530,18 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                                     </div>
 
                                     <div className="flex items-center gap-3">
+                                        {isEditing && (
+                                            <button
+                                                onClick={resetForm}
+                                                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                            >
+                                                <X size={16} />
+                                                Cancelar Edição
+                                            </button>
+                                        )}
                                         <button
-                                            onClick={() => setShowHistory(!showHistory)}
-                                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors ${showHistory ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                                                }`}
+                                            onClick={() => { setShowHistory(!showHistory); setViewingEvaluation(null); setIsEditing(false); }}
+                                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors ${showHistory ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
                                         >
                                             <History size={16} />
                                             Histórico
@@ -507,6 +560,7 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                                         value={period}
                                         onChange={(e) => setPeriod(e.target.value)}
                                         className="px-4 py-2 border rounded-xl text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                        disabled={isEditing}
                                     />
                                 </div>
                             </div>
@@ -529,7 +583,6 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                                     ) : (
                                         <div className="space-y-3">
                                             {evaluations.map((ev) => {
-                                                // Calcular nota geral
                                                 const scores = [
                                                     ev.assiduidade, ev.qualidade_atendimento, ev.procedimentos,
                                                     ev.conhecimento_tecnico, ev.produtividade, ev.organizacao,
@@ -540,18 +593,103 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                                                 const avgColor = Number(avg) >= 4 ? 'bg-green-500' : Number(avg) >= 3 ? 'bg-yellow-500' : 'bg-red-500';
 
                                                 return (
-                                                    <div key={ev.id} className="p-4 border rounded-xl bg-gray-50 flex items-center justify-between">
-                                                        <div>
-                                                            <p className="font-bold text-sm text-gray-900">
-                                                                {new Date(ev.period + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
-                                                            </p>
-                                                            <p className="text-xs text-gray-500">
-                                                                Por: {ev.evaluator_name} • {ev.created_at ? new Date(ev.created_at).toLocaleDateString('pt-BR') : ''}
-                                                            </p>
+                                                    <div key={ev.id} className="p-4 border rounded-xl bg-gray-50">
+                                                        <div className="flex items-center justify-between">
+                                                            <div>
+                                                                <p className="font-bold text-sm text-gray-900">
+                                                                    {new Date(ev.period + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                                                                </p>
+                                                                <p className="text-xs text-gray-500">
+                                                                    Por: {ev.evaluator_name} • {ev.created_at ? new Date(ev.created_at).toLocaleDateString('pt-BR') : ''}
+                                                                </p>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <div className={`px-3 py-1.5 rounded-lg text-white font-bold ${avgColor}`}>
+                                                                    {avg}
+                                                                </div>
+                                                                {userRole === Role.SUPERVISOR && (
+                                                                    <>
+                                                                        <button
+                                                                            onClick={() => setViewingEvaluation(viewingEvaluation?.id === ev.id ? null : ev)}
+                                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                                                            title="Ver detalhes"
+                                                                        >
+                                                                            <Eye size={16} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => loadEvaluationForEdit(ev)}
+                                                                            className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                                                            title="Editar avaliação"
+                                                                        >
+                                                                            <Edit size={16} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => handleDeleteEvaluation(ev)}
+                                                                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                                                            title="Excluir avaliação"
+                                                                        >
+                                                                            <Trash2 size={16} />
+                                                                        </button>
+                                                                    </>
+                                                                )}
+                                                            </div>
                                                         </div>
-                                                        <div className={`px-3 py-1.5 rounded-lg text-white font-bold ${avgColor}`}>
-                                                            {avg}
-                                                        </div>
+
+                                                        {/* Detalhes expandidos */}
+                                                        {viewingEvaluation?.id === ev.id && (
+                                                            <div className="mt-4 pt-4 border-t space-y-4">
+                                                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                                                    {EVALUATION_CRITERIA_CONFIG.map(c => {
+                                                                        const val = (ev as any)[c.key];
+                                                                        const color = val ? RATING_SCALES[c.scaleType][val - 1]?.color : 'bg-gray-300';
+                                                                        return (
+                                                                            <div key={c.key} className="p-3 bg-white rounded-lg border">
+                                                                                <p className="text-[10px] font-bold text-gray-400 uppercase truncate">{c.label}</p>
+                                                                                <div className={`inline-block px-2 py-0.5 mt-1 rounded text-xs font-bold text-white ${color}`}>
+                                                                                    {val || '-'}
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                    <div className="p-3 bg-white rounded-lg border">
+                                                                        <p className="text-[10px] font-bold text-gray-400 uppercase">TMA (Auto)</p>
+                                                                        <div className={`inline-block px-2 py-0.5 mt-1 rounded text-xs font-bold text-white ${RATING_SCALES.professional[(ev.nota_tma || 3) - 1]?.color}`}>
+                                                                            {ev.nota_tma || '-'}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="p-3 bg-white rounded-lg border">
+                                                                        <p className="text-[10px] font-bold text-gray-400 uppercase">NPS (Auto)</p>
+                                                                        <div className={`inline-block px-2 py-0.5 mt-1 rounded text-xs font-bold text-white ${RATING_SCALES.professional[(ev.nota_nps || 3) - 1]?.color}`}>
+                                                                            {ev.nota_nps || '-'}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="p-3 bg-white rounded-lg border">
+                                                                        <p className="text-[10px] font-bold text-gray-400 uppercase">Monitoria (Auto)</p>
+                                                                        <div className={`inline-block px-2 py-0.5 mt-1 rounded text-xs font-bold text-white ${RATING_SCALES.professional[(ev.nota_monitoria || 3) - 1]?.color}`}>
+                                                                            {ev.nota_monitoria || '-'}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                    <div className="p-3 bg-green-50 rounded-lg border border-green-100">
+                                                                        <p className="text-xs font-bold text-green-700 uppercase mb-1">Pontos Fortes</p>
+                                                                        <p className="text-sm text-gray-700">{ev.pontos_fortes}</p>
+                                                                    </div>
+                                                                    <div className="p-3 bg-amber-50 rounded-lg border border-amber-100">
+                                                                        <p className="text-xs font-bold text-amber-700 uppercase mb-1">Pontos de Melhoria</p>
+                                                                        <p className="text-sm text-gray-700">{ev.pontos_melhoria}</p>
+                                                                    </div>
+                                                                </div>
+
+                                                                {ev.plano_desenvolvimento && (
+                                                                    <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                                                                        <p className="text-xs font-bold text-blue-700 uppercase mb-1">Plano de Desenvolvimento</p>
+                                                                        <p className="text-sm text-gray-700">{ev.plano_desenvolvimento}</p>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 );
                                             })}
@@ -602,6 +740,7 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                                         <h3 className="font-bold text-gray-900 flex items-center gap-2">
                                             <Star size={18} className="text-amber-500" />
                                             Critérios de Avaliação Manual
+                                            {isEditing && <span className="text-xs text-blue-600 font-normal">(Editando avaliação existente)</span>}
                                         </h3>
 
                                         {EVALUATION_CRITERIA_CONFIG.map((criterion) => (
@@ -667,8 +806,8 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                                                                     : prev ? prev + ', ' + opt : opt
                                                             )}
                                                             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${planoDesenvolvimento.includes(opt)
-                                                                    ? 'bg-blue-600 text-white'
-                                                                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                                                ? 'bg-blue-600 text-white'
+                                                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                                                                 }`}
                                                         >
                                                             {opt}
@@ -703,8 +842,8 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                                                 onClick={handleSave}
                                                 disabled={!isFormValid() || isSaving}
                                                 className={`flex items-center gap-3 px-8 py-4 rounded-2xl font-bold transition-all ${isFormValid() && !isSaving
-                                                        ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg'
-                                                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                                    ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg'
+                                                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                                                     }`}
                                             >
                                                 {isSaving ? (
@@ -715,7 +854,7 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                                                 ) : (
                                                     <>
                                                         <Save size={20} />
-                                                        Salvar Avaliação
+                                                        {isEditing ? 'Atualizar Avaliação' : 'Salvar Avaliação'}
                                                     </>
                                                 )}
                                             </button>
