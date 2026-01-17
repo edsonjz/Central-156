@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     ArrowLeft,
@@ -147,7 +147,15 @@ const calculateTMAScore = (value: string | null): number => {
     if (!value) return 3;
 
     const parts = value.split(':').map(Number);
-    const totalSeconds = parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
+    let totalSeconds = 0;
+
+    if (parts.length === 3) {
+        totalSeconds = parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
+    } else if (parts.length === 2) {
+        totalSeconds = parts[0] * 60 + (parts[1] || 0);
+    } else if (parts.length === 1) {
+        totalSeconds = parts[0];
+    }
 
     // Regras específicas para TMA
     // 00:02:59 a 00:01:00 = 5 (muito acima do esperado)
@@ -160,9 +168,10 @@ const calculateTMAScore = (value: string | null): number => {
     if (totalSeconds >= 271 && totalSeconds <= 389) return 2;
     // 00:20:00 a 00:06:30 = 1 (muito abaixo do esperado)
     if (totalSeconds >= 390 && totalSeconds <= 1200) return 1;
+
     // Fora dos ranges definidos
     if (totalSeconds > 1200) return 1;
-    if (totalSeconds < 60) return 5;
+    if (totalSeconds > 0 && totalSeconds < 60) return 5;
 
     return 3;
 };
@@ -196,12 +205,28 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
     const { supabase, user, userProfile } = useAuth();
 
     // Estados
-    const [selectedOperator, setSelectedOperator] = useState<Operator | null>(null);
+    const [selectedOperatorReg, setSelectedOperatorReg] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [period, setPeriod] = useState(() => {
         const now = new Date();
+        now.setMonth(now.getMonth() - 1);
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     });
+
+    // Operador selecionado derivado para garantir sincronia com os dados globais
+    const selectedOperator = operators.find(op => op.registration === selectedOperatorReg) || null;
+
+    // KPI do período para cálculos e exibição
+    const periodKpi = useMemo(() => {
+        if (!selectedOperator?.kpis) return null;
+        const kpisOfPeriod = selectedOperator.kpis.filter(k => k.month === period);
+        if (kpisOfPeriod.length === 0) return null;
+        return kpisOfPeriod.reduce((latest, current) => {
+            if (!latest.createdAt) return current;
+            if (!current.createdAt) return latest;
+            return new Date(current.createdAt) > new Date(latest.createdAt) ? current : latest;
+        }, kpisOfPeriod[0]);
+    }, [selectedOperator, period]);
 
     const [expandedCriteria, setExpandedCriteria] = useState<string | null>(null);
 
@@ -264,7 +289,10 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
     useEffect(() => {
         if (!selectedOperator?.kpis) return;
 
+        console.log(`Calculando KPIs para ${selectedOperator.name} no período ${period}`);
         const kpisOfPeriod = selectedOperator.kpis.filter(k => k.month === period);
+        console.log(`KPIs encontrados para o período:`, kpisOfPeriod);
+
         if (kpisOfPeriod.length === 0) {
             setKpiScores({ tma: 3, nps: 3, monitoria: 3 });
             return;
@@ -276,10 +304,12 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
             return new Date(current.createdAt) > new Date(latest.createdAt) ? current : latest;
         }, kpisOfPeriod[0]);
 
+        console.log(`Usando KPI mais recente:`, latestKpi);
+
         setKpiScores({
             tma: calculateTMAScore(latestKpi.tma),
-            nps: calculateNPSScore(latestKpi.nps),
-            monitoria: calculateMonitoriaScore(latestKpi.monitoria)
+            nps: calculateNPSScore(latestKpi.nps !== null ? Number(latestKpi.nps) : null),
+            monitoria: calculateMonitoriaScore(latestKpi.monitoria !== null ? Number(latestKpi.monitoria) : null)
         });
     }, [selectedOperator, period, goals]);
 
@@ -297,7 +327,7 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
 
     // Selecionar operador
     const handleSelectOperator = (op: Operator) => {
-        setSelectedOperator(op);
+        setSelectedOperatorReg(op.registration);
         resetForm();
         setShowHistory(false);
     };
@@ -306,6 +336,7 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
     const loadEvaluationForEdit = (ev: PerformanceEvaluation) => {
         setViewingEvaluation(ev);
         setIsEditing(true);
+        setPeriod(ev.period); // Importante: alinhar o período para carregar os KPIs corretos
         setCriteria({
             assiduidade: ev.assiduidade,
             qualidade_atendimento: ev.qualidade_atendimento,
@@ -758,6 +789,9 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                                                         {kpiScores.tma}
                                                     </div>
                                                     <p className="text-[10px] text-gray-400 mt-1">{RATING_SCALES.professional[kpiScores.tma - 1]?.label}</p>
+                                                    <p className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full mt-2 inline-block font-bold">
+                                                        {periodKpi?.tma || '--:--'}
+                                                    </p>
                                                 </div>
                                                 <div className="bg-white/80 p-4 rounded-xl text-center">
                                                     <p className="text-xs font-bold text-gray-500 uppercase mb-1">NPS</p>
@@ -765,6 +799,9 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                                                         {kpiScores.nps}
                                                     </div>
                                                     <p className="text-[10px] text-gray-400 mt-1">{RATING_SCALES.professional[kpiScores.nps - 1]?.label}</p>
+                                                    <p className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full mt-2 inline-block font-bold">
+                                                        {periodKpi?.nps != null ? `${periodKpi.nps}%` : '--'}
+                                                    </p>
                                                 </div>
                                                 <div className="bg-white/80 p-4 rounded-xl text-center">
                                                     <p className="text-xs font-bold text-gray-500 uppercase mb-1">Monitoria</p>
@@ -772,6 +809,9 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                                                         {kpiScores.monitoria}
                                                     </div>
                                                     <p className="text-[10px] text-gray-400 mt-1">{RATING_SCALES.professional[kpiScores.monitoria - 1]?.label}</p>
+                                                    <p className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full mt-2 inline-block font-bold">
+                                                        {periodKpi?.monitoria != null ? `${periodKpi.monitoria}%` : '--'}
+                                                    </p>
                                                 </div>
                                             </div>
 
