@@ -5,8 +5,8 @@ import { generateSystemEmail } from './utils';
 
 // Configuração Padrão (Usa variáveis de ambiente se disponíveis, senão fallback para desenvolvimento)
 const DEFAULT_CLOUD_CONFIG: CloudConfig = {
-  url: import.meta.env.VITE_SUPABASE_URL || 'https://wdeyalyeodicquajiywy.supabase.co',
-  key: import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_tQ-XWwcY5z47f2NBJWkQWw_seUu03uP',
+  url: import.meta.env.VITE_SUPABASE_URL || 'https://yvzzbvyhfiywfjzazgzz.supabase.co',
+  key: import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_tTw3WXQqtNUhRKoKQtERkg_643b8A-U',
   enabled: true
 };
 
