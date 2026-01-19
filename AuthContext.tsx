@@ -5,8 +5,8 @@ import { generateSystemEmail } from './utils';
 
 // Configuração Padrão (Usa variáveis de ambiente se disponíveis, senão fallback para desenvolvimento)
 const DEFAULT_CLOUD_CONFIG: CloudConfig = {
-  url: import.meta.env.VITE_SUPABASE_URL || 'https://yvzzbvyhfiywfjzazgzz.supabase.co',
-  key: import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_tTw3WXQqtNUhRKoKQtERkg_643b8A-U',
+  url: import.meta.env.VITE_SUPABASE_URL || 'https://wdeyalyeodicquajiywy.supabase.co',
+  key: import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_tQ-XWwcY5z47f2NBJWkQWw_seUu03uP',
   enabled: true
 };
 
@@ -167,13 +167,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (identifier: string, password: string) => {
     if (!supabaseClient) return { error: 'Cliente não inicializado' };
 
-    let email = identifier;
+    const cleanIdentifier = identifier.trim().toLowerCase();
+    let email = cleanIdentifier;
 
     // Regra de negócio:
     // Se NÃO contém '@', assume que é Matrícula de Operador e converte para e-mail técnico.
-    if (!identifier.includes('@')) {
-      email = generateSystemEmail(identifier);
+    if (!cleanIdentifier.includes('@')) {
+      email = generateSystemEmail(cleanIdentifier);
     }
+
+    console.log(`Tentando login para: ${email}`);
 
     let { data, error } = await supabaseClient.auth.signInWithPassword({
       email,
@@ -184,8 +187,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Se falhar o login com o novo padrão, e for matrícula, tenta padrões antigos
     if (error && !identifier.includes('@')) {
       const fallbacks = [
-        `op${identifier}@sistema156.com`, // Formato anterior
-        `${identifier}@operadores.sistema.local` // Formato original
+        `op${cleanIdentifier}@sistema156.com`, // Formato anterior
+        `${cleanIdentifier}@operadores.sistema.local`, // Formato original
+        `${cleanIdentifier}@example.com` // Sem o prefixo 'op'
       ];
 
       for (const fallbackEmail of fallbacks) {
