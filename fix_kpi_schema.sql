@@ -1,56 +1,48 @@
 -- ==========================================
--- SCRIPT DE CORREÇÃO DE SCHEMA E RLS - CENTRAL 156
--- Execute este script no SQL Editor do Supabase
+-- SCRIPT DE CORREÇÃO FINAL (RLS RECURSION FIX)
+-- Este script corrige o erro de "Recursão Infinita"
 -- ==========================================
 
--- 1. Garantir que as colunas JSONB existem e estão corretas
-ALTER TABLE operators 
-ADD COLUMN IF NOT EXISTS kpis JSONB DEFAULT '[]'::jsonb,
-ADD COLUMN IF NOT EXISTS feedbacks JSONB DEFAULT '[]'::jsonb,
-ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb;
+-- 1. Definir função de segurança que EVITA o loop
+-- O segredo é 'SECURITY DEFINER': ela roda como admin e ignora o RLS ao checar a role
+CREATE OR REPLACE FUNCTION public.is_supervisor_safe() 
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM operators 
+    WHERE user_id = auth.uid() 
+    AND role = 'Supervisor'
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER; -- <--- ISSO É O IMPORTANTE
 
--- 2. Garantir que arrays nulos sejam convertidos para vazios (evita erros no frontend)
-UPDATE operators SET kpis = '[]'::jsonb WHERE kpis IS NULL;
-UPDATE operators SET feedbacks = '[]'::jsonb WHERE feedbacks IS NULL;
-UPDATE operators SET documents = '[]'::jsonb WHERE documents IS NULL;
+-- 2. Limpar políticas quebradas
+DROP POLICY IF EXISTS "Operators Select Policy" ON operators;
+DROP POLICY IF EXISTS "Operators Insert Update Delete Policy" ON operators;
+DROP POLICY IF EXISTS "Operators Full Access" ON operators;
+DROP POLICY IF EXISTS "Operators Self Access" ON operators;
 
--- 3. Recriar Políticas de Segurança (RLS) para garantir permissão de escrita
-
--- Habilitar RLS
 ALTER TABLE operators ENABLE ROW LEVEL SECURITY;
 
--- Remover políticas antigas para evitar conflitos
-DROP POLICY IF EXISTS "Política de Leitura" ON operators;
-DROP POLICY IF EXISTS "Política de Escrita" ON operators;
-DROP POLICY IF EXISTS "Supervisors Full Access" ON operators;
-DROP POLICY IF EXISTS "Operators Read Own" ON operators;
-DROP POLICY IF EXISTS "Operators Update Own" ON operators;
+-- 3. Criar Políticas Seguras usando a função
 
--- Política 1: Leitura (Supervisores veem todos, Operadores veem a si mesmos)
+-- Política de Leitura
 CREATE POLICY "Operators Select Policy" ON operators
 FOR SELECT
 USING (
-  (auth.jwt() ->> 'email') LIKE '%admin%' OR  -- Admin/Supervisor via email
-  auth.uid() = user_id OR                     -- O próprio operador
-  EXISTS (                                    -- Supervisor checado no banco
-    SELECT 1 FROM operators 
-    WHERE user_id = auth.uid() 
-    AND role = 'Supervisor'
-  )
+  (auth.jwt() ->> 'email') LIKE '%admin%' OR  -- Admin do Supabase
+  auth.uid() = user_id OR                     -- O próprio usuário pode se ver
+  is_supervisor_safe()                        -- Supervisor (usando a função segura)
 );
 
--- Política 2: Escrita/Modificação (Supervisores podem tudo, Operadores podem atualizar seus dados)
-CREATE POLICY "Operators Insert Update Delete Policy" ON operators
+-- Política de Escrita (Updates, Inserts)
+CREATE POLICY "Operators Write Policy" ON operators
 FOR ALL
 USING (
-  (auth.jwt() ->> 'email') LIKE '%admin%' OR  -- Admin/Supervisor via email
-  auth.uid() = user_id OR                     -- O próprio operador (ex: responder feedback)
-  EXISTS (                                    -- Supervisor checado no banco
-    SELECT 1 FROM operators 
-    WHERE user_id = auth.uid() 
-    AND role = 'Supervisor'
-  )
+  (auth.jwt() ->> 'email') LIKE '%admin%' OR  -- Admin do Supabase
+  auth.uid() = user_id OR                     -- O próprio usuário pode editar seus dados
+  is_supervisor_safe()                        -- Supervisor pode editar tudo
 );
 
 -- 4. Notificar sucesso
-SELECT 'Correção aplicada com sucesso. Tabela operators atualizada.' as status;
+SELECT 'Políticas corrigidas com sucesso. Loop infinito resolvido.' as status;
