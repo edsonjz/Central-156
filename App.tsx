@@ -114,23 +114,40 @@ const AppContent: React.FC = () => {
     // 2. Salvar no Supabase (Apenas o registro modificado)
     if (supabase) {
       try {
-        const { error } = await supabase
+        console.log("Tentando salvar operador:", updatedOperator.registration);
+
+        // Garantir que os campos JSON não sejam undefined (o que o Supabase pode rejeitar ou ignorar)
+        const payload = {
+          ...updatedOperator,
+          kpis: updatedOperator.kpis || [],
+          feedbacks: updatedOperator.feedbacks || [],
+          documents: updatedOperator.documents || []
+        };
+
+        const { data, error } = await supabase
           .from('operators')
-          .upsert(updatedOperator, { onConflict: 'registration' });
+          .upsert(payload, { onConflict: 'registration' })
+          .select();
 
         if (error) {
-          console.error("Erro ao salvar operador individual:", error);
-          alert(`Erro ao salvar alterações: ${error.message}`);
+          console.error("ERRO CRÍTICO AO SALVAR NO SUPABASE:", error);
+          alert(`Erro ao salvar alterações: ${error.message || JSON.stringify(error)}`);
+
           // Reverter em caso de erro (busca do servidor)
-          const { data } = await supabase.from('operators').select('*').eq('registration', updatedOperator.registration).single();
-          if (data) {
-            setOperators(prev => prev.map(op => op.registration === updatedOperator.registration ? { ...data, kpis: data.kpis || [], feedbacks: data.feedbacks || [], documents: data.documents || [] } : op));
+          const { data: serverData } = await supabase.from('operators').select('*').eq('registration', updatedOperator.registration).single();
+          if (serverData) {
+            console.log("Revertendo para dados do servidor:", serverData);
+            setOperators(prev => prev.map(op => op.registration === updatedOperator.registration ? { ...serverData, kpis: serverData.kpis || [], feedbacks: serverData.feedbacks || [], documents: serverData.documents || [] } : op));
           }
+        } else {
+          console.log("Sucesso ao salvar no Supabase:", data);
         }
       } catch (err: any) {
-        console.error("Exceção ao salvar operador:", err);
-        alert(`Erro de conexão: ${err.message}`);
+        console.error("EXCEÇÃO NÃO TRATADA AO SALVAR:", err);
+        alert(`Erro de conexão fatal: ${err.message}`);
       }
+    } else {
+      console.warn("Supabase client não disponível para salvar.");
     }
   }, [supabase]);
 
