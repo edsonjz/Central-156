@@ -75,19 +75,37 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
         if (supabase && user) {
             channel = supabase
                 .channel('operators-changes')
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'operators' }, async (payload: any) => {
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'operators' }, (payload: any) => {
+                    // OTIMIZAÇÃO: Usar payload.new diretamente em vez de fazer fetch extra
+
                     if (payload.eventType === 'DELETE' && payload.old) {
                         setOperators(prev => prev.filter(op => op.registration !== payload.old.registration));
                     } else if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && payload.new) {
-                        const reg = payload.new.registration;
-                        const { data: freshOp } = await supabase.from('operators').select('*').eq('registration', reg).single();
-                        if (freshOp) {
-                            const sanitizedOp = { ...freshOp, kpis: freshOp.kpis || [], feedbacks: freshOp.feedbacks || [], documents: freshOp.documents || [], active: freshOp.active ?? true };
-                            setOperators(prev => {
-                                const exists = prev.some(op => op.registration === reg);
-                                return exists ? prev.map(op => op.registration === reg ? sanitizedOp : op) : [...prev, sanitizedOp].sort((a, b) => a.name.localeCompare(b.name));
-                            });
-                        }
+                        const newRecord = payload.new;
+
+                        setOperators(prev => {
+                            const exists = prev.some(op => op.registration === newRecord.registration);
+                            const existingOp = prev.find(op => op.registration === newRecord.registration);
+
+                            // OTIMIZAÇÃO: Preservar documentos locais se o payload vier sem eles (ex: update parcial, embora raro no Realtime default)
+                            // Na prática, o Realtime envia o record completo. 
+                            // Se o documento for GRANDE, ele virá pelo websocket.
+                            // Mas evitamos a chamada HTTP GET extra /rest/v1/operators.
+
+                            const sanitizedOp = {
+                                ...newRecord,
+                                kpis: newRecord.kpis || [],
+                                feedbacks: newRecord.feedbacks || [],
+                                documents: newRecord.documents || (existingOp ? existingOp.documents : []),
+                                active: newRecord.active ?? true
+                            };
+
+                            if (exists) {
+                                return prev.map(op => op.registration === newRecord.registration ? sanitizedOp : op);
+                            } else {
+                                return [...prev, sanitizedOp].sort((a, b) => a.name.localeCompare(b.name));
+                            }
+                        });
                     }
                 })
                 .subscribe();
@@ -95,19 +113,18 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
 
         const intervalId = setInterval(() => {
             if (document.visibilityState === 'visible' && supabase) {
-                // Optimization: Exclude 'documents' from polling to save bandwidth
+                // Polling de segurança aumentado para 5 minutos
+                // Se o Realtime estiver funcionando, isso é apenas um fallback.
                 supabase.from('operators')
                     .select('user_id, registration, name, admissionDate, role, linkType, costCenter, classification, workMode, birthDate, photoUrl, active, kpis, feedbacks')
                     .order('name')
                     .then(({ data }) => {
                         if (data) {
                             setOperators(current => {
-                                // Merge fresh data with existing heavy data (documents)
                                 const mergedOps = data.map((newOp: any) => {
                                     const existingOp = current.find(c => c.registration === newOp.registration);
                                     return {
                                         ...newOp,
-                                        // Resgata documentos já carregados para não perdê-los, já que não vieram no select
                                         documents: existingOp ? existingOp.documents : [],
                                         kpis: newOp.kpis || [],
                                         feedbacks: newOp.feedbacks || [],
@@ -115,8 +132,6 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
                                     };
                                 });
 
-                                // Simple comparison to avoid unnecessary re-renders if nothing changed
-                                // Note: This comparison ignores document changes since we didn't fetch them
                                 if (JSON.stringify(current.map(o => ({ ...o, documents: [] }))) === JSON.stringify(mergedOps.map(o => ({ ...o, documents: [] })))) {
                                     return current;
                                 }
@@ -126,7 +141,7 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
                         }
                     });
             }
-        }, 10000); // 10s interval
+        }, 300000); // 5 minutes interval (was 10s)
 
         return () => {
             if (channel) supabase?.removeChannel(channel);
