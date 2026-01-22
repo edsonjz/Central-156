@@ -37,13 +37,20 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
             }
 
             if (loadedOps.length > 0) {
-                setOperators(loadedOps);
+                setOperators(current => {
+                    // OTIMIZAÇÃO: Comparação profunda para evitar re-render se os dados não mudaram
+                    // Isso é crucial para evitar loops de efeito quando o AuthContext atualiza
+                    if (JSON.stringify(current) === JSON.stringify(loadedOps)) {
+                        return current;
+                    }
+                    return loadedOps;
+                });
             } else if (opsError) {
                 if (opsError?.code === '42P17') {
                     setSystemError({
                         title: "Erro Crítico: Recursão Infinita (RLS)",
                         msg: "A política de segurança do banco entrou em loop infinito.",
-                        fix: `-- SOLUÇÃO COMPLETA ...` // Simplified for brevity in this hook
+                        fix: `-- SOLUÇÃO COMPLETA ...`
                     });
                 } else {
                     setOperators(INITIAL_OPERATORS);

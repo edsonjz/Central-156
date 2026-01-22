@@ -253,20 +253,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const isAdmin = userRole === Role.SUPERVISOR;
 
+  const value = React.useMemo(() => ({
+    user,
+    session,
+    userRole,
+    userProfile,
+    isLoading,
+    supabase: supabaseClient,
+    login, // Note: Function references change on render, consider wrapping in useCallback if further opt needed
+    logout,
+    createOperatorAccount,
+    updateOperatorPassword,
+    isAdmin
+  }), [user, session, userRole, userProfile, isLoading, supabaseClient, isAdmin]);
+
   return (
-    <AuthContext.Provider value={{
-      user,
-      session,
-      userRole,
-      userProfile,
-      isLoading,
-      supabase: supabaseClient,
-      login,
-      logout,
-      createOperatorAccount,
-      updateOperatorPassword,
-      isAdmin
-    }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
