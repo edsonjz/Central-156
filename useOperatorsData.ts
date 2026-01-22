@@ -95,14 +95,38 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
 
         const intervalId = setInterval(() => {
             if (document.visibilityState === 'visible' && supabase) {
-                supabase.from('operators').select('*').order('name').then(({ data }) => {
-                    if (data) {
-                        const loadedOps = data.map((op: any) => ({ ...op, kpis: op.kpis || [], feedbacks: op.feedbacks || [], documents: op.documents || [], active: op.active ?? true }));
-                        setOperators(current => JSON.stringify(current) !== JSON.stringify(loadedOps) ? loadedOps : current);
-                    }
-                });
+                // Optimization: Exclude 'documents' from polling to save bandwidth
+                supabase.from('operators')
+                    .select('user_id, registration, name, admissionDate, role, linkType, costCenter, classification, workMode, birthDate, photoUrl, active, kpis, feedbacks')
+                    .order('name')
+                    .then(({ data }) => {
+                        if (data) {
+                            setOperators(current => {
+                                // Merge fresh data with existing heavy data (documents)
+                                const mergedOps = data.map((newOp: any) => {
+                                    const existingOp = current.find(c => c.registration === newOp.registration);
+                                    return {
+                                        ...newOp,
+                                        // Resgata documentos já carregados para não perdê-los, já que não vieram no select
+                                        documents: existingOp ? existingOp.documents : [],
+                                        kpis: newOp.kpis || [],
+                                        feedbacks: newOp.feedbacks || [],
+                                        active: newOp.active ?? true
+                                    };
+                                });
+
+                                // Simple comparison to avoid unnecessary re-renders if nothing changed
+                                // Note: This comparison ignores document changes since we didn't fetch them
+                                if (JSON.stringify(current.map(o => ({ ...o, documents: [] }))) === JSON.stringify(mergedOps.map(o => ({ ...o, documents: [] })))) {
+                                    return current;
+                                }
+
+                                return mergedOps;
+                            });
+                        }
+                    });
             }
-        }, 10000); // Increased to 10s for better performance
+        }, 10000); // 10s interval
 
         return () => {
             if (channel) supabase?.removeChannel(channel);

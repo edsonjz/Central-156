@@ -116,17 +116,40 @@ const AppContent: React.FC = () => {
       try {
         console.log("Tentando salvar operador:", updatedOperator.registration);
 
-        // Garantir que os campos JSON não sejam undefined (o que o Supabase pode rejeitar ou ignorar)
-        const payload = {
-          ...updatedOperator,
-          kpis: updatedOperator.kpis || [],
-          feedbacks: updatedOperator.feedbacks || [],
-          documents: updatedOperator.documents || []
-        };
+        // Encontrar versão atual no estado para comparar (Referential Check)
+        const currentOp = operators.find(op => op.registration === updatedOperator.registration);
 
+        // Copia superficial
+        const payload: any = { ...updatedOperator };
+
+        // OTIMIZAÇÃO CRÍTICA: Se a lista de documentos (que pode ser gigante com base64) 
+        // não mudou (mesma referência), REMOVEMOS do payload para evitar timeout.
+        if (currentOp && currentOp.documents === updatedOperator.documents) {
+          console.log("Documentos não alterados. Removendo do payload para economizar banda.");
+          delete payload.documents;
+        }
+
+        // Se feedbacks não mudaramm, também removemos
+        if (currentOp && currentOp.feedbacks === updatedOperator.feedbacks) {
+          delete payload.feedbacks;
+        }
+
+        // Se KPIs não mudaram, também removemos
+        if (currentOp && currentOp.kpis === updatedOperator.kpis) {
+          delete payload.kpis;
+        }
+
+        // Garantir que os campos JSON não sejam undefined caso tenham sido incluídos
+        if (payload.kpis) payload.kpis = payload.kpis || [];
+        if (payload.feedbacks) payload.feedbacks = payload.feedbacks || [];
+        if (payload.documents) payload.documents = payload.documents || [];
+
+        // Usamos UPDATE em vez de UPSERT para garantir que colunas omitidas não sejam afetadas
+        // e para ser uma operação mais leve de PATCH.
         const { data, error } = await supabase
           .from('operators')
-          .upsert(payload, { onConflict: 'registration' })
+          .update(payload)
+          .eq('registration', updatedOperator.registration)
           .select();
 
         if (error) {
@@ -149,7 +172,7 @@ const AppContent: React.FC = () => {
     } else {
       console.warn("Supabase client não disponível para salvar.");
     }
-  }, [supabase]);
+  }, [supabase, operators]); // Adicionado 'operators' dependency para o diff funcionar
 
   const unreadCount = operators.reduce((acc, op) => {
     const opUnread = op.feedbacks?.filter(f => f.operatorResponse && f.isRead === false).length || 0;
