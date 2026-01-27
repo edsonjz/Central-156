@@ -90,8 +90,12 @@ const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({ operators }) 
         }
     }, [supabase, startDate, endDate, selectedOperatorFilter]);
 
+    // OTIMIZAÇÃO: Debounce de 500ms para evitar fetch a cada mudança de filtro
     useEffect(() => {
-        loadAllEvaluations();
+        const timer = setTimeout(() => {
+            loadAllEvaluations();
+        }, 500);
+        return () => clearTimeout(timer);
     }, [loadAllEvaluations]);
 
     // Calcular dados para os gráficos

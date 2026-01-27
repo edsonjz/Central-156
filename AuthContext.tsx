@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 import { Role, Operator, CloudConfig, LinkType, WorkMode } from './types';
 import { generateSystemEmail } from './utils';
@@ -33,6 +33,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userProfile, setUserProfile] = useState<Operator | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [supabaseClient, setSupabaseClient] = useState<SupabaseClient | null>(null);
+
+  // Ref para evitar fetch duplicado de profile (getSession + onAuthStateChange ambos disparam)
+  const profileFetchedForUser = useRef<string | null>(null);
 
   // Inicializa Supabase Principal
   useEffect(() => {
@@ -77,6 +80,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const fetchUserProfile = async (currentUser: User) => {
     if (!supabaseClient) return;
+
+    // OTIMIZAÇÃO: Evitar fetch duplicado para o mesmo usuário
+    // (getSession e onAuthStateChange podem ambos disparar fetchUserProfile)
+    if (profileFetchedForUser.current === currentUser.id) {
+      console.log('[AuthContext] Profile already fetched for user:', currentUser.id);
+      return;
+    }
+    profileFetchedForUser.current = currentUser.id;
 
     // 1. Tenta busca padrão pelo user_id
     const { data, error } = await supabaseClient

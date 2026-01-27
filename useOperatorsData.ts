@@ -73,7 +73,7 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
         } finally {
             setIsDataLoading(false);
         }
-    }, [supabase, user, userProfile, isAdmin]);
+    }, [supabase, user, isAdmin]);
 
     useEffect(() => {
         loadData();
@@ -118,10 +118,11 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
                 .subscribe();
         }
 
+        // Fallback polling a cada 30 minutos (apenas para edge cases onde Realtime pode falhar)
+        // Intervalo aumentado de 5min para 30min pois Realtime é a fonte primária
         const intervalId = setInterval(() => {
             if (document.visibilityState === 'visible' && supabase) {
-                // Polling de segurança aumentado para 5 minutos
-                // Se o Realtime estiver funcionando, isso é apenas um fallback.
+                console.log('[useOperatorsData] Fallback polling triggered (30min)');
                 supabase.from('operators')
                     .select('user_id, registration, name, admissionDate, role, linkType, costCenter, classification, workMode, birthDate, photoUrl, active, kpis, feedbacks')
                     .order('name')
@@ -148,7 +149,7 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
                         }
                     });
             }
-        }, 300000); // 5 minutes interval (was 10s)
+        }, 1800000); // 30 minutes (was 5 minutes)
 
         return () => {
             if (channel) supabase?.removeChannel(channel);
