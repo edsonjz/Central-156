@@ -35,39 +35,63 @@ interface IndicatorsProps {
 }
 
 const SummaryCard = ({ title, value, goal, unit = '', type = 'higher' as const }: any) => {
-  const isSuccess = getStatusColor(value, goal, type) === 'text-green-600';
+  const statusColor = getStatusColor(value, goal, type);
+  const isSuccess = statusColor === 'text-green-600';
+  const borderColor = isSuccess ? 'border-l-emerald-500' : 'border-l-amber-500';
 
   return (
-    <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm transition-all hover:shadow-md">
-      <div className="flex justify-between items-start mb-2">
-        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{title}</span>
-        <div className={`p-1.5 rounded-full ${isSuccess ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+    <div className={`
+      relative overflow-hidden
+      bg-gradient-to-br from-white via-white to-slate-50
+      p-6 rounded-2xl 
+      shadow-[0_4px_20px_-4px_rgba(0,0,0,0.08)]
+      border border-slate-100/80
+      border-l-4 ${borderColor}
+      transition-all duration-300 ease-out
+      hover:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.12)]
+      hover:-translate-y-1
+      group
+    `}>
+      <div className="flex justify-between items-start mb-3">
+        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{title}</span>
+        <div className={`p-1.5 rounded-full transition-transform duration-300 group-hover:scale-110 ${isSuccess ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
           {isSuccess ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
         </div>
       </div>
-      <div className="flex items-baseline gap-2">
-        <span className={`text-2xl font-black ${isSuccess ? 'text-green-600' : 'text-red-600'}`}>
+      <div className="flex items-baseline gap-3">
+        <span className={`text-4xl font-black tracking-tight ${isSuccess ? 'text-emerald-600' : 'text-amber-600'}`}>
           {typeof value === 'number' ? formatDecimal(value) : value}{unit}
         </span>
-        <span className="text-xs text-gray-400 font-medium italic">Meta: {typeof goal === 'number' ? formatDecimal(goal) : goal}{unit}</span>
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${isSuccess ? 'bg-emerald-500' : 'bg-amber-500'}`}
+            style={{ width: `${Math.min(100, (typeof value === 'number' ? (value / (typeof goal === 'number' ? goal : 100)) * 100 : 50))}%` }}
+          />
+        </div>
+        <span className="text-[10px] text-slate-400 font-bold whitespace-nowrap italic">
+          Meta: {typeof goal === 'number' ? formatDecimal(goal) : goal}{unit}
+        </span>
       </div>
     </div>
   );
 };
 
+
 const ToggleFilter = ({ value, onChange }: { value: 'best' | 'worst', onChange: (v: 'best' | 'worst') => void }) => (
-  <div className="flex bg-gray-100 p-1 rounded-xl">
+  <div className="flex bg-slate-100/80 p-1 rounded-xl backdrop-blur-sm">
     <button
       onClick={() => onChange('best')}
-      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${value === 'best' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${value === 'best' ? 'bg-white text-emerald-600 shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
     >
-      Top 10 Melhores
+      🏆 Top 10
     </button>
     <button
       onClick={() => onChange('worst')}
-      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${value === 'worst' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${value === 'worst' ? 'bg-white text-amber-600 shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
     >
-      Top 10 Piores
+      ⚠️ Atenção
     </button>
   </div>
 );
@@ -182,19 +206,20 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 max-w-7xl mx-auto">
+      {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Métricas Consolidadas</h1>
-          <p className="text-gray-500">Visão analítica de performance individual e coletiva.</p>
+          <h1 className="text-3xl font-black text-slate-800 tracking-tight">Métricas Consolidadas</h1>
+          <p className="text-slate-500 mt-1 font-medium">Visão analítica de performance individual e coletiva</p>
         </div>
 
-        {/* Filtros de Data */}
-        <div className="flex items-center gap-2 bg-white p-2 rounded-xl border border-gray-100 shadow-sm">
-          <div className="p-2 bg-gray-50 rounded-lg text-gray-400">
+        {/* Premium Filter Bar */}
+        <div className="flex items-center gap-2 bg-white/80 backdrop-blur-sm p-2 rounded-2xl border border-slate-200/60 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.08)]">
+          <div className="p-2.5 bg-gradient-to-br from-slate-100 to-slate-50 rounded-xl text-slate-500">
             <Filter size={18} />
           </div>
           <select
-            className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer"
+            className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer px-2 py-1 hover:bg-slate-50 rounded-lg transition-colors"
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value)}
           >
@@ -202,9 +227,9 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
               <option key={idx} value={String(idx + 1)}>{m}</option>
             ))}
           </select>
-          <div className="w-px h-4 bg-gray-200 mx-1"></div>
+          <div className="w-px h-5 bg-slate-200" />
           <select
-            className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer"
+            className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer px-2 py-1 hover:bg-slate-50 rounded-lg transition-colors"
             value={selectedYear}
             onChange={(e) => setSelectedYear(e.target.value)}
           >
@@ -212,10 +237,9 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
               <option key={y} value={y}>{y}</option>
             ))}
           </select>
-
-          <div className="w-px h-4 bg-gray-200 mx-1"></div>
+          <div className="w-px h-5 bg-slate-200" />
           <select
-            className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer"
+            className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer px-2 py-1 hover:bg-slate-50 rounded-lg transition-colors"
             value={selectedClassification}
             onChange={(e) => setSelectedClassification(e.target.value as any)}
           >
@@ -228,10 +252,10 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
         {userRole === Role.SUPERVISOR && (
           <button
             onClick={handleExportReport}
-            className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold shadow-sm hover:bg-emerald-700 transition-all text-sm"
+            className="flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-[0_4px_16px_-4px_rgba(16,185,129,0.4)] hover:shadow-[0_8px_24px_-4px_rgba(16,185,129,0.5)] hover:-translate-y-0.5 transition-all duration-200 text-sm"
           >
             <Download size={18} />
-            Exportar Relatório Excel
+            Exportar Excel
           </button>
         )}
       </div>
@@ -242,19 +266,19 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
         <SummaryCard title="Qualidade Time" value={teamStats.monitoria} goal={goals.monitoria} />
       </div>
 
-      <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2 mt-4">
+      <h2 className="text-lg font-black text-slate-800 flex items-center gap-2 mt-4">
         <TrendingUp size={20} className="text-blue-600" />
-        Rankings de Performance ({MONTHS[Number(selectedMonth) - 1]}/{selectedYear})
+        Rankings de Performance — {MONTHS[Number(selectedMonth) - 1]}/{selectedYear}
       </h2>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
 
-        {/* GRÁFICO 1: QUALIDADE */}
-        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col">
+        {/* CHART 1: QUALIDADE */}
+        <div className="bg-gradient-to-br from-white via-white to-slate-50 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.08)] border border-slate-100/80 flex flex-col transition-all duration-300 hover:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.1)]">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
-              <CheckCircle size={16} className="text-emerald-500" />
-              Ranking Qualidade
+            <h3 className="font-black text-slate-700 flex items-center gap-2 text-sm">
+              <div className="p-1.5 rounded-lg bg-emerald-50"><CheckCircle size={14} className="text-emerald-500" /></div>
+              Qualidade
             </h3>
             <ToggleFilter value={filterQualidade} onChange={setFilterQualidade} />
           </div>
@@ -262,33 +286,35 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
             {dataQualidade.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dataQualidade} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f3f4f6" />
+                  <defs>
+                    <linearGradient id="qualidadeGradient" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor={filterQualidade === 'best' ? '#10b981' : '#f59e0b'} stopOpacity={0.8} />
+                      <stop offset="100%" stopColor={filterQualidade === 'best' ? '#059669' : '#d97706'} stopOpacity={1} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
                   <XAxis type="number" domain={[0, 100]} hide />
-                  <YAxis dataKey="shortName" type="category" width={80} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
+                  <YAxis dataKey="shortName" type="category" width={80} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 700 }} axisLine={false} tickLine={false} />
                   <Tooltip
-                    cursor={{ fill: '#f8fafc' }}
-                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
-                    formatter={(value: number) => [formatDecimal(value), 'Qualidade']}
+                    cursor={{ fill: '#f1f5f9' }}
+                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 40px -10px rgba(0,0,0,0.2)', padding: '12px 16px' }}
+                    formatter={(value: number) => [formatDecimal(value) + '%', 'Qualidade']}
                   />
-                  <Bar dataKey="avgMonitoria" radius={[0, 4, 4, 0]} barSize={20}>
-                    {dataQualidade.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={filterQualidade === 'best' ? '#10b981' : '#ef4444'} />
-                    ))}
-                  </Bar>
+                  <Bar dataKey="avgMonitoria" radius={[0, 6, 6, 0]} barSize={18} fill="url(#qualidadeGradient)" />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-gray-400 italic text-sm">Sem dados para este período</div>
+              <div className="h-full flex items-center justify-center text-slate-400 italic text-sm">Sem dados para este período</div>
             )}
           </div>
         </div>
 
-        {/* GRÁFICO 2: NPS */}
-        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col">
+        {/* CHART 2: NPS */}
+        <div className="bg-gradient-to-br from-white via-white to-slate-50 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.08)] border border-slate-100/80 flex flex-col transition-all duration-300 hover:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.1)]">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
-              <Heart size={16} className="text-rose-500" />
-              Ranking NPS
+            <h3 className="font-black text-slate-700 flex items-center gap-2 text-sm">
+              <div className="p-1.5 rounded-lg bg-blue-50"><Heart size={14} className="text-blue-500" /></div>
+              NPS
             </h3>
             <ToggleFilter value={filterNPS} onChange={setFilterNPS} />
           </div>
@@ -296,33 +322,35 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
             {dataNPS.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dataNPS} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f3f4f6" />
+                  <defs>
+                    <linearGradient id="npsGradient" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor={filterNPS === 'best' ? '#3b82f6' : '#f59e0b'} stopOpacity={0.8} />
+                      <stop offset="100%" stopColor={filterNPS === 'best' ? '#2563eb' : '#d97706'} stopOpacity={1} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
                   <XAxis type="number" domain={[0, 100]} hide />
-                  <YAxis dataKey="shortName" type="category" width={80} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
+                  <YAxis dataKey="shortName" type="category" width={80} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 700 }} axisLine={false} tickLine={false} />
                   <Tooltip
-                    cursor={{ fill: '#f8fafc' }}
-                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
+                    cursor={{ fill: '#f1f5f9' }}
+                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 40px -10px rgba(0,0,0,0.2)', padding: '12px 16px' }}
                     formatter={(value: number) => [formatDecimal(value), 'NPS']}
                   />
-                  <Bar dataKey="avgNps" radius={[0, 4, 4, 0]} barSize={20}>
-                    {dataNPS.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={filterNPS === 'best' ? '#3b82f6' : '#f97316'} />
-                    ))}
-                  </Bar>
+                  <Bar dataKey="avgNps" radius={[0, 6, 6, 0]} barSize={18} fill="url(#npsGradient)" />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-gray-400 italic text-sm">Sem dados para este período</div>
+              <div className="h-full flex items-center justify-center text-slate-400 italic text-sm">Sem dados para este período</div>
             )}
           </div>
         </div>
 
-        {/* GRÁFICO 3: TMA */}
-        <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col">
+        {/* CHART 3: TMA */}
+        <div className="bg-gradient-to-br from-white via-white to-slate-50 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.08)] border border-slate-100/80 flex flex-col transition-all duration-300 hover:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.1)]">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="font-bold text-gray-700 flex items-center gap-2 text-sm">
-              <Clock size={16} className="text-indigo-500" />
-              Ranking TMA
+            <h3 className="font-black text-slate-700 flex items-center gap-2 text-sm">
+              <div className="p-1.5 rounded-lg bg-indigo-50"><Clock size={14} className="text-indigo-500" /></div>
+              TMA
             </h3>
             <ToggleFilter value={filterTMA} onChange={setFilterTMA} />
           </div>
@@ -330,64 +358,67 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
             {dataTMA.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={dataTMA} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f3f4f6" />
+                  <defs>
+                    <linearGradient id="tmaGradient" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor={filterTMA === 'best' ? '#6366f1' : '#f59e0b'} stopOpacity={0.8} />
+                      <stop offset="100%" stopColor={filterTMA === 'best' ? '#4f46e5' : '#d97706'} stopOpacity={1} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
                   <XAxis type="number" hide />
-                  <YAxis dataKey="shortName" type="category" width={80} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} axisLine={false} tickLine={false} />
+                  <YAxis dataKey="shortName" type="category" width={80} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 700 }} axisLine={false} tickLine={false} />
                   <Tooltip
-                    cursor={{ fill: '#f8fafc' }}
-                    contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}
+                    cursor={{ fill: '#f1f5f9' }}
+                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 40px -10px rgba(0,0,0,0.2)', padding: '12px 16px' }}
                     content={({ active, payload }) => {
                       if (active && payload && payload.length) {
                         const data = payload[0].payload;
                         return (
-                          <div className="bg-white p-2 rounded-lg shadow-lg border border-gray-100 text-xs font-bold text-gray-600">
-                            <p className="mb-1">{data.name}</p>
-                            <p className="text-indigo-600">TMA: {data.avgTma}</p>
+                          <div className="bg-white p-3 rounded-xl shadow-lg border border-slate-100 text-xs font-bold text-slate-600">
+                            <p className="mb-1 text-slate-800">{data.name}</p>
+                            <p className="text-indigo-600 text-sm">TMA: {data.avgTma}</p>
                           </div>
                         );
                       }
                       return null;
                     }}
                   />
-                  <Bar dataKey="avgTmaSeconds" radius={[0, 4, 4, 0]} barSize={20}>
-                    {dataTMA.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={filterTMA === 'best' ? '#6366f1' : '#ef4444'} />
-                    ))}
-                  </Bar>
+                  <Bar dataKey="avgTmaSeconds" radius={[0, 6, 6, 0]} barSize={18} fill="url(#tmaGradient)" />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex items-center justify-center text-gray-400 italic text-sm">Sem dados para este período</div>
+              <div className="h-full flex items-center justify-center text-slate-400 italic text-sm">Sem dados para este período</div>
             )}
           </div>
         </div>
       </div>
 
+      {/* Performance Table Section */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-        <div className="lg:col-span-4 bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col">
+        <div className="lg:col-span-4 bg-gradient-to-br from-white via-white to-slate-50 p-6 rounded-2xl shadow-[0_4px_20px_-4px_rgba(0,0,0,0.08)] border border-slate-100/80 flex flex-col">
           <div className="flex items-center gap-4 mb-6">
-            <h3 className="font-bold text-gray-800 flex items-center gap-2">
-              <Search size={18} className="text-gray-400" />
+            <h3 className="font-black text-slate-800 flex items-center gap-2">
+              <div className="p-2 rounded-lg bg-slate-100"><Search size={16} className="text-slate-500" /></div>
               Filtro Rápido
             </h3>
             <input
               type="text"
               placeholder="Buscar operador na tabela..."
-              className="flex-1 bg-gray-50 border border-gray-100 rounded-xl p-2 px-4 text-sm focus:ring-2 focus:ring-blue-500/10 outline-none"
+              className="flex-1 bg-white border border-slate-200 rounded-xl p-2.5 px-4 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300 outline-none transition-all shadow-sm"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-gray-100">
-            <div className="p-4 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
-              <h3 className="font-bold text-gray-700 text-sm uppercase tracking-wide">Tabela de Performance - {MONTHS[Number(selectedMonth) - 1]}/{selectedYear}</h3>
-              <span className="text-[10px] font-black text-blue-600 bg-blue-100 px-3 py-1 rounded-full">TOTAL: {filteredList.length}</span>
+          <div className="overflow-hidden rounded-xl border border-slate-200/80 shadow-sm">
+            <div className="p-4 bg-gradient-to-r from-slate-50 to-slate-100/50 border-b border-slate-200/80 flex justify-between items-center">
+              <h3 className="font-black text-slate-700 text-sm uppercase tracking-wide">Tabela de Performance — {MONTHS[Number(selectedMonth) - 1]}/{selectedYear}</h3>
+              <span className="text-[10px] font-black text-blue-700 bg-blue-100 px-3 py-1.5 rounded-full shadow-sm">TOTAL: {filteredList.length}</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-white border-b border-gray-50">
+                  <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white/80 border-b border-slate-100">
                     <th className="px-6 py-4">Operador</th>
                     <th className="px-4 py-4 text-center">TMA Médio</th>
                     <th className="px-4 py-4 text-center">NPS</th>
@@ -395,52 +426,52 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
                     <th className="px-6 py-4 text-right">Detalhes</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-50">
+                <tbody className="divide-y divide-slate-50">
                   {filteredList.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-12 text-center text-gray-400 italic">Nenhum registro encontrado para o período selecionado.</td>
+                      <td colSpan={5} className="py-12 text-center text-slate-400 italic">Nenhum registro encontrado para o período selecionado.</td>
                     </tr>
                   ) : (
                     filteredList.map((op) => (
-                      <tr key={op.registration} className="hover:bg-blue-50/20 transition-colors group">
-                        <td className="px-6 py-3">
+                      <tr key={op.registration} className="hover:bg-blue-50/30 transition-all duration-200 group">
+                        <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl bg-white border border-gray-100 flex items-center justify-center text-slate-300 font-bold overflow-hidden shadow-sm">
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 border border-slate-200/50 flex items-center justify-center text-slate-400 font-bold overflow-hidden shadow-sm group-hover:scale-105 transition-transform">
                               {op.photoUrl ? <img src={op.photoUrl} className="w-full h-full object-cover" /> : op.name.charAt(0)}
                             </div>
                             <div>
-                              <p className="text-sm font-bold text-gray-900 line-clamp-1">{op.name}</p>
-                              <p className="text-[10px] text-gray-400 font-bold tracking-tight">#{op.registration}</p>
+                              <p className="text-sm font-bold text-slate-800 line-clamp-1 group-hover:text-slate-900">{op.name}</p>
+                              <p className="text-[10px] text-slate-400 font-bold tracking-tight">#{op.registration}</p>
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-center">
-                          <span className={`text-sm font-bold font-mono ${getStatusColor(op.avgTma, goals.tma, 'lower')}`}>
+                        <td className="px-4 py-4 text-center">
+                          <span className={`text-sm font-black font-mono ${getStatusColor(op.avgTma, goals.tma, 'lower')}`}>
                             {op.avgTma}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-center">
-                          <span className={`text-sm font-bold ${getStatusColor(op.avgNps, goals.nps)}`}>
+                        <td className="px-4 py-4 text-center">
+                          <span className={`text-sm font-black ${getStatusColor(op.avgNps, goals.nps)}`}>
                             {formatDecimal(op.avgNps)}
                           </span>
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-col items-center gap-1">
-                            <div className="w-20 bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                        <td className="px-4 py-4">
+                          <div className="flex flex-col items-center gap-1.5">
+                            <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
                               <div
-                                className={`h-full rounded-full ${op.avgMonitoria >= goals.monitoria ? 'bg-green-500' : 'bg-red-500'}`}
+                                className={`h-full rounded-full transition-all duration-500 ${op.avgMonitoria >= goals.monitoria ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' : 'bg-gradient-to-r from-amber-400 to-amber-500'}`}
                                 style={{ width: `${op.avgMonitoria}%` }}
-                              ></div>
+                              />
                             </div>
-                            <span className={`text-[10px] font-bold ${getStatusColor(op.avgMonitoria, goals.monitoria)}`}>
-                              {formatDecimal(op.avgMonitoria)}
+                            <span className={`text-[10px] font-black ${getStatusColor(op.avgMonitoria, goals.monitoria)}`}>
+                              {formatDecimal(op.avgMonitoria)}%
                             </span>
                           </div>
                         </td>
-                        <td className="px-6 py-3 text-right">
+                        <td className="px-6 py-4 text-right">
                           <button
                             onClick={() => navigate(`/operator/${op.registration}`)}
-                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                            className="p-2.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200 hover:shadow-sm"
                           >
                             <ChevronRight size={18} />
                           </button>
