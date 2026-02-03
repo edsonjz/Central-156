@@ -80,49 +80,55 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
 
         let channel: any;
         if (supabase && user) {
+            // OTIMIZAÇÃO: Handlers específicos para cada tipo de evento
+            // Isso reduz a carga no servidor Supabase, pois não precisa processar evento genérico '*'
+
+            const handleInsertOrUpdate = (payload: any) => {
+                const newRecord = payload.new;
+                if (!newRecord) return;
+
+                setOperators(prev => {
+                    const exists = prev.some(op => op.registration === newRecord.registration);
+                    const existingOp = prev.find(op => op.registration === newRecord.registration);
+
+                    // Preservar documentos locais se o payload vier sem eles
+                    const sanitizedOp = {
+                        ...newRecord,
+                        kpis: newRecord.kpis || [],
+                        feedbacks: newRecord.feedbacks || [],
+                        documents: newRecord.documents || (existingOp ? existingOp.documents : []),
+                        active: newRecord.active ?? true
+                    };
+
+                    if (exists) {
+                        return prev.map(op => op.registration === newRecord.registration ? sanitizedOp : op);
+                    } else {
+                        return [...prev, sanitizedOp].sort((a, b) => a.name.localeCompare(b.name));
+                    }
+                });
+            };
+
+            const handleDelete = (payload: any) => {
+                if (payload.old) {
+                    setOperators(prev => prev.filter(op => op.registration !== payload.old.registration));
+                }
+            };
+
             channel = supabase
                 .channel('operators-changes')
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'operators' }, (payload: any) => {
-                    // OTIMIZAÇÃO: Usar payload.new diretamente em vez de fazer fetch extra
-
-                    if (payload.eventType === 'DELETE' && payload.old) {
-                        setOperators(prev => prev.filter(op => op.registration !== payload.old.registration));
-                    } else if ((payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') && payload.new) {
-                        const newRecord = payload.new;
-
-                        setOperators(prev => {
-                            const exists = prev.some(op => op.registration === newRecord.registration);
-                            const existingOp = prev.find(op => op.registration === newRecord.registration);
-
-                            // OTIMIZAÇÃO: Preservar documentos locais se o payload vier sem eles (ex: update parcial, embora raro no Realtime default)
-                            // Na prática, o Realtime envia o record completo. 
-                            // Se o documento for GRANDE, ele virá pelo websocket.
-                            // Mas evitamos a chamada HTTP GET extra /rest/v1/operators.
-
-                            const sanitizedOp = {
-                                ...newRecord,
-                                kpis: newRecord.kpis || [],
-                                feedbacks: newRecord.feedbacks || [],
-                                documents: newRecord.documents || (existingOp ? existingOp.documents : []),
-                                active: newRecord.active ?? true
-                            };
-
-                            if (exists) {
-                                return prev.map(op => op.registration === newRecord.registration ? sanitizedOp : op);
-                            } else {
-                                return [...prev, sanitizedOp].sort((a, b) => a.name.localeCompare(b.name));
-                            }
-                        });
-                    }
-                })
+                // OTIMIZAÇÃO: Eventos específicos em vez de '*' genérico
+                // Reduz processamento no servidor e melhora performance
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'operators' }, handleInsertOrUpdate)
+                .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'operators' }, handleInsertOrUpdate)
+                .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'operators' }, handleDelete)
                 .subscribe();
         }
 
-        // Fallback polling a cada 30 minutos (apenas para edge cases onde Realtime pode falhar)
-        // Intervalo aumentado de 5min para 30min pois Realtime é a fonte primária
+        // OTIMIZAÇÃO: Fallback polling estendido para 60 minutos
+        // Apenas para edge cases onde Realtime pode falhar silenciosamente
         const intervalId = setInterval(() => {
             if (document.visibilityState === 'visible' && supabase) {
-                console.log('[useOperatorsData] Fallback polling triggered (30min)');
+                console.log('[useOperatorsData] Fallback polling triggered (60min)');
                 supabase.from('operators')
                     .select('user_id, registration, name, admissionDate, role, linkType, costCenter, classification, workMode, birthDate, photoUrl, active, kpis, feedbacks')
                     .order('name')
@@ -149,7 +155,7 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
                         }
                     });
             }
-        }, 1800000); // 30 minutes (was 5 minutes)
+        }, 3600000); // 60 minutes (was 30 minutes)
 
         return () => {
             if (channel) supabase?.removeChannel(channel);
