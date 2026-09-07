@@ -180,32 +180,41 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200/60">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Gestão da Equipe</h1>
-          <p className="text-gray-500">Administre o cadastro e acesso de colaboradores.</p>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
+            Gestão de Equipe
+            <span className="text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200/60">
+              {filteredOperators.length} colaboradores
+            </span>
+          </h1>
+          <p className="text-slate-500 text-sm mt-1">Controle de colaboradores, vínculos, modalidades e acessos</p>
         </div>
         {userRole === Role.SUPERVISOR && (
-          <div className="flex items-center gap-3">
-            <button onClick={() => handleOpenModal()} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold shadow-lg hover:bg-blue-700 transition-colors">
-              <Plus size={18} /> Novo Operador
-            </button>
-          </div>
+          <button
+            onClick={() => handleOpenModal()}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-sm font-bold shadow-md shadow-blue-500/20 active:scale-95 transition-all"
+          >
+            <Plus size={18} /> Novo Operador
+          </button>
         )}
       </div>
 
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row items-center gap-4">
+      {/* Filter and Search Toolbar */}
+      <div className="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-slate-200/80 flex flex-col md:flex-row items-center gap-3">
         <div className="relative flex-1 w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
           <input
-            type="text" placeholder="Pesquisar por nome ou matrícula..."
-            className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
-            value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+            type="text"
+            placeholder="Pesquisar por nome ou matrícula..."
+            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full md:w-auto">
           <select
-            className="text-xs font-bold bg-gray-50 border border-gray-200 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="text-xs font-semibold bg-slate-50 border border-slate-200 text-slate-700 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
             value={filterMode}
             onChange={(e) => setFilterMode(e.target.value as any)}
           >
@@ -214,7 +223,7 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
             <option value={WorkMode.HOME_OFFICE}>Home Office</option>
           </select>
           <select
-            className="text-xs font-bold bg-gray-50 border border-gray-200 rounded-lg p-2 outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="text-xs font-semibold bg-slate-50 border border-slate-200 text-slate-700 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
             value={filterClassification}
             onChange={(e) => setFilterClassification(e.target.value as any)}
           >
@@ -225,34 +234,37 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      {/* Modern Data Table */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200/80 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-100">
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Cadastro</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Colaborador</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Vínculo</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Atribuição</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Modalidade</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase">Status</th>
-                <th className="px-6 py-4 text-xs font-bold text-gray-500 uppercase text-right">Ações</th>
+              <tr className="bg-slate-50/80 border-b border-slate-200/70">
+                <th className="px-5 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Matrícula</th>
+                <th className="px-5 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Colaborador</th>
+                <th className="px-5 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Vínculo</th>
+                <th className="px-5 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Atribuição</th>
+                <th className="px-5 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Modalidade</th>
+                <th className="px-5 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                <th className="px-5 py-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-slate-100">
               {filteredOperators.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-400 italic">
-                    Nenhum colaborador encontrado.
+                  <td colSpan={7} className="px-6 py-14 text-center text-slate-400">
+                    <p className="text-sm font-medium">Nenhum colaborador encontrado com os filtros selecionados.</p>
                   </td>
                 </tr>
               ) : (
                 filteredOperators.map((op) => (
-                  <tr key={op.registration} className="hover:bg-gray-50 transition-colors group">
-                    <td className="px-6 py-4 text-sm font-medium text-blue-600">#{op.registration}</td>
-                    <td className="px-6 py-4">
+                  <tr key={op.registration} className="hover:bg-slate-50/80 transition-colors group">
+                    <td className="px-5 py-4 text-xs font-mono font-bold text-blue-600 whitespace-nowrap">
+                      #{op.registration}
+                    </td>
+                    <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500 font-bold uppercase shrink-0 overflow-hidden">
+                        <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-slate-100 to-slate-200 text-slate-600 font-bold text-xs flex items-center justify-center uppercase shrink-0 overflow-hidden ring-1 ring-slate-200/60">
                           {op.photoUrl ? (
                             <img src={op.photoUrl} alt={op.name} className="w-full h-full object-cover" />
                           ) : (
@@ -261,46 +273,59 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <p className="text-sm font-bold text-gray-900 line-clamp-1">{op.name}</p>
+                            <p className="text-xs sm:text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-1">
+                              {op.name}
+                            </p>
                             {op.feedbacks.some(f => f.operatorResponse && f.isRead === false) && (
-                              <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.5)]" title="Nova resposta de feedback"></span>
+                              <span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.8)]" title="Nova resposta de feedback" />
                             )}
                           </div>
-                          <p className="text-xs text-gray-500">{op.role}</p>
+                          <p className="text-[11px] text-slate-400 font-medium">{op.role}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${op.classification === OperatorClassification.SMF ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-700'}`}>
+                    <td className="px-5 py-4 text-xs text-slate-600 whitespace-nowrap">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-700">
+                        {op.linkType || 'Efetivo'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 text-xs whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${op.classification === OperatorClassification.SMF ? 'bg-amber-100/70 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>
                         {op.classification}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{op.workMode}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-5 py-4 text-xs text-slate-600 whitespace-nowrap">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold ${op.workMode === WorkMode.HOME_OFFICE ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-700'}`}>
+                        {op.workMode}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 whitespace-nowrap">
                       <button
                         onClick={() => handleToggleStatus(op.registration)}
-                        className={`flex items-center gap-1.5 text-xs font-semibold px-2 py-1 rounded-full transition-colors ${op.active ? 'text-green-600 bg-green-50' : 'text-red-400 bg-red-50'}`}
-                        title="Alterar status"
+                        className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full transition-all cursor-pointer ${op.active ? 'text-emerald-700 bg-emerald-50 border border-emerald-200/60' : 'text-slate-500 bg-slate-100'}`}
+                        title="Alterar status de atividade"
                       >
-                        {op.active ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+                        <span className={`w-1.5 h-1.5 rounded-full ${op.active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                         {op.active ? 'Ativo' : 'Inativo'}
                       </button>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-5 py-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => navigate(`/operator/${op.registration}`)}
-                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                          title="Ver Ficha e Lançamentos"
                         >
-                          <FileText size={18} />
+                          <FileText size={16} />
                         </button>
                         {userRole === Role.SUPERVISOR && (
                           <>
                             <button
                               onClick={() => handleOpenModal(op)}
-                              className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
+                              className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-xl transition-all"
+                              title="Editar Dados"
                             >
-                              <Edit size={18} />
+                              <Edit size={16} />
                             </button>
                             {op.user_id && (
                               <button
@@ -309,17 +334,18 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
                                   setNewPasswordForChange('');
                                   setPasswordModalOpen(true);
                                 }}
-                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all"
                                 title="Alterar Senha"
                               >
-                                <KeyRound size={18} />
+                                <KeyRound size={16} />
                               </button>
                             )}
                             <button
                               onClick={(e) => handleDelete(e, op.registration)}
-                              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                              className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                              title="Excluir Colaborador"
                             >
-                              <Trash2 size={18} />
+                              <Trash2 size={16} />
                             </button>
                           </>
                         )}

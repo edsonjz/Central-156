@@ -130,3 +130,64 @@ export const exportToCSV = (data: any[], filename: string) => {
   link.click();
   document.body.removeChild(link);
 };
+
+/**
+ * Redimensiona e comprime uma imagem no navegador antes do upload.
+ * Reduz arquivos pesados (ex: fotos de celular de 5MB) para ~20KB-40KB,
+ * economizando massivamente tráfego e armazenamento no Supabase.
+ */
+export const compressImage = (
+  file: File,
+  maxWidth = 256,
+  maxHeight = 256,
+  quality = 0.82
+): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(event.target?.result as string);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        // Tenta WebP, com fallback para JPEG
+        try {
+          const compressed = canvas.toDataURL('image/webp', quality);
+          if (compressed.startsWith('data:image/webp')) {
+            resolve(compressed);
+            return;
+          }
+        } catch {
+          // Fallback
+        }
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => reject(new Error('Erro ao carregar imagem para compressão'));
+    };
+    reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
+  });
+};

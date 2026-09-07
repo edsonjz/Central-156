@@ -37,61 +37,51 @@ interface IndicatorsProps {
 const SummaryCard = ({ title, value, goal, unit = '', type = 'higher' as const }: any) => {
   const statusColor = getStatusColor(value, goal, type);
   const isSuccess = statusColor === 'text-green-600';
-  const borderColor = isSuccess ? 'border-l-emerald-500' : 'border-l-amber-500';
 
   return (
-    <div className={`
-      relative overflow-hidden
-      bg-gradient-to-br from-white via-white to-slate-50
-      p-6 rounded-2xl 
-      shadow-[0_4px_20px_-4px_rgba(0,0,0,0.08)]
-      border border-slate-100/80
-      border-l-4 ${borderColor}
-      transition-all duration-300 ease-out
-      hover:shadow-[0_12px_32px_-8px_rgba(0,0,0,0.12)]
-      hover:-translate-y-1
-      group
-    `}>
+    <div className="relative overflow-hidden bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 hover:shadow-md transition-all duration-300 group">
+      {/* Top accent */}
+      <div className={`absolute top-0 left-0 right-0 h-1 ${isSuccess ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+
       <div className="flex justify-between items-start mb-3">
-        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{title}</span>
-        <div className={`p-1.5 rounded-full transition-transform duration-300 group-hover:scale-110 ${isSuccess ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{title}</span>
+        <div className={`p-1.5 rounded-full ${isSuccess ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-500/20' : 'bg-amber-50 text-amber-600 ring-1 ring-amber-500/20'}`}>
           {isSuccess ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
         </div>
       </div>
-      <div className="flex items-baseline gap-3">
-        <span className={`text-4xl font-black tracking-tight ${isSuccess ? 'text-emerald-600' : 'text-amber-600'}`}>
+
+      <div className="flex items-baseline gap-2">
+        <span className={`text-3xl sm:text-4xl font-extrabold tracking-tight ${isSuccess ? 'text-emerald-600' : 'text-amber-600'}`}>
           {typeof value === 'number' ? formatDecimal(value) : value}{unit}
         </span>
+        <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${isSuccess ? 'text-emerald-700 bg-emerald-50' : 'text-amber-700 bg-amber-50'}`}>
+          {isSuccess ? 'Atingida' : 'Abaixo'}
+        </span>
       </div>
-      <div className="mt-3 flex items-center gap-2">
-        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-500 ${isSuccess ? 'bg-emerald-500' : 'bg-amber-500'}`}
-            style={{ width: `${Math.min(100, (typeof value === 'number' ? (value / (typeof goal === 'number' ? goal : 100)) * 100 : 50))}%` }}
-          />
-        </div>
-        <span className="text-[10px] text-slate-400 font-bold whitespace-nowrap italic">
-          Meta: {typeof goal === 'number' ? formatDecimal(goal) : goal}{unit}
+
+      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-medium">
+        <span className="text-slate-400">Meta:</span>
+        <span className="font-bold text-slate-700">
+          {typeof goal === 'number' ? formatDecimal(goal) : goal}{unit}
         </span>
       </div>
     </div>
   );
 };
 
-
 const ToggleFilter = ({ value, onChange }: { value: 'best' | 'worst', onChange: (v: 'best' | 'worst') => void }) => (
-  <div className="flex bg-slate-100/80 p-1 rounded-xl backdrop-blur-sm">
+  <div className="flex bg-slate-100 p-1 rounded-xl">
     <button
       onClick={() => onChange('best')}
-      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${value === 'best' ? 'bg-white text-emerald-600 shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${value === 'best' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
     >
-      🏆 Top 10
+      Top 10
     </button>
     <button
       onClick={() => onChange('worst')}
-      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all duration-200 ${value === 'worst' ? 'bg-white text-amber-600 shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
+      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${value === 'worst' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
     >
-      ⚠️ Atenção
+      Atenção
     </button>
   </div>
 );

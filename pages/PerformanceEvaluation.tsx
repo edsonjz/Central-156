@@ -488,36 +488,42 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
     const overallColor = overallScore >= 4 ? 'text-green-600' : overallScore >= 3 ? 'text-yellow-600' : 'text-red-600';
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-300">
+        <div className="space-y-6 max-w-7xl mx-auto pb-12 animate-fade-in-up">
             {/* Header */}
-            <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                    <button onClick={() => navigate(-1)} className="p-2 hover:bg-white rounded-full transition-colors text-gray-500">
-                        <ArrowLeft size={24} />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200/60">
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => navigate(-1)}
+                        className="p-2.5 bg-white border border-slate-200/80 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors shadow-sm"
+                        title="Voltar"
+                    >
+                        <ArrowLeft size={18} />
                     </button>
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
-                            <ClipboardCheck className="text-blue-600" size={28} />
+                        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
                             Avaliação de Desempenho
+                            <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200/60">
+                                90° Supervisor → Operador
+                            </span>
                         </h1>
-                        <p className="text-sm text-gray-500">Avaliação 90° - Supervisor → Operador</p>
+                        <p className="text-xs sm:text-sm text-slate-500 mt-0.5">Gestão de competências, critérios comportamentais e técnicos</p>
                     </div>
                 </div>
 
                 {/* Toggle View Mode */}
-                <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-xl">
+                <div className="flex items-center gap-1.5 bg-slate-200/70 p-1 rounded-xl">
                     <button
                         onClick={() => setViewMode('form')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'form' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer ${viewMode === 'form' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
                     >
-                        <ClipboardCheck size={18} />
+                        <ClipboardCheck size={16} />
                         Avaliações
                     </button>
                     <button
                         onClick={() => setViewMode('dashboard')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'dashboard' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer ${viewMode === 'dashboard' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
                     >
-                        <BarChart3 size={18} />
+                        <BarChart3 size={16} />
                         Dashboard
                     </button>
                 </div>
@@ -529,24 +535,24 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Lista de Operadores */}
-                    <div className="bg-white rounded-2xl border shadow-sm p-4 space-y-4">
+                    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 sm:p-5 space-y-4">
                         <div className="flex items-center justify-between">
-                            <h3 className="font-bold text-gray-900">Equipe</h3>
-                            <span className="text-xs text-gray-400 font-medium">{activeOperators.length} ativos</span>
+                            <h3 className="font-extrabold text-sm text-slate-900 uppercase tracking-wider">Equipe</h3>
+                            <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{activeOperators.length} ativos</span>
                         </div>
 
                         <div className="relative">
-                            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                             <input
                                 type="text"
                                 placeholder="Buscar operador..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-medium text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                             />
                         </div>
 
-                        <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                        <div className="space-y-1.5 max-h-[520px] overflow-y-auto custom-scrollbar pr-1">
                             {filteredOperators.map(op => {
                                 const hasEvalThisPeriod = evaluations.some(e => e.operator_registration === op.registration && e.period === period);
 
@@ -554,24 +560,24 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                                     <button
                                         key={op.registration}
                                         onClick={() => handleSelectOperator(op)}
-                                        className={`w-full p-3 rounded-xl text-left flex items-center gap-3 transition-all ${selectedOperator?.registration === op.registration
-                                            ? 'bg-blue-50 border-2 border-blue-500'
-                                            : 'bg-gray-50 hover:bg-gray-100 border-2 border-transparent'
+                                        className={`w-full p-2.5 rounded-xl text-left flex items-center gap-3 transition-all cursor-pointer ${selectedOperator?.registration === op.registration
+                                            ? 'bg-blue-50 border-2 border-blue-500 shadow-sm'
+                                            : 'bg-slate-50/70 hover:bg-slate-100 border-2 border-transparent'
                                             }`}
                                     >
-                                        <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
+                                        <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0 overflow-hidden ring-1 ring-slate-200/60">
                                             {op.photoUrl ? (
-                                                <img src={op.photoUrl} alt={op.name} className="w-full h-full object-cover rounded-full" />
+                                                <img src={op.photoUrl} alt={op.name} className="w-full h-full object-cover" />
                                             ) : (
                                                 op.name.charAt(0)
                                             )}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <p className="font-bold text-sm text-gray-900 truncate">{op.name}</p>
-                                            <p className="text-xs text-gray-500">#{op.registration}</p>
+                                            <p className="font-bold text-xs sm:text-sm text-slate-900 truncate">{op.name}</p>
+                                            <p className="text-[11px] text-slate-400 font-mono">#{op.registration}</p>
                                         </div>
                                         {hasEvalThisPeriod && (
-                                            <CheckCircle2 size={16} className="text-green-500 shrink-0" title="Já avaliado neste período" />
+                                            <CheckCircle2 size={16} className="text-emerald-500 shrink-0" title="Já avaliado neste período" />
                                         )}
                                     </button>
                                 );
@@ -582,10 +588,10 @@ const PerformanceEvaluationPage: React.FC<PerformanceEvaluationPageProps> = ({ o
                     {/* Formulário de Avaliação */}
                     <div className="lg:col-span-2 space-y-6">
                         {!selectedOperator ? (
-                            <div className="bg-white rounded-2xl border shadow-sm p-12 text-center">
-                                <User size={48} className="mx-auto text-gray-300 mb-4" />
-                                <h3 className="font-bold text-gray-700">Selecione um operador</h3>
-                                <p className="text-sm text-gray-400 mt-1">Escolha um operador na lista para iniciar a avaliação</p>
+                            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-12 sm:p-16 text-center">
+                                <User size={44} className="mx-auto text-slate-300 mb-4" />
+                                <h3 className="font-bold text-slate-800 text-base">Selecione um colaborador</h3>
+                                <p className="text-xs sm:text-sm text-slate-400 mt-1">Escolha um operador na lista ao lado para iniciar ou visualizar avaliações</p>
                             </div>
                         ) : (
                             <>

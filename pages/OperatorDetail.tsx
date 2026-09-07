@@ -26,10 +26,11 @@ import {
   Loader2,
   User,
   Send,
-  Check
+  Check,
+  Target
 } from 'lucide-react';
 import { Operator, Role, KPI, Feedback, TeamGoals, OperatorClassification } from '../types';
-import { calculateAverageKPIs, getStatusColor, formatDecimal, generateSystemEmail, getLatestKPIsPerMonth } from '../utils';
+import { calculateAverageKPIs, getStatusColor, formatDecimal, generateSystemEmail, getLatestKPIsPerMonth, compressImage } from '../utils';
 import { useAuth } from '../AuthContext';
 
 interface OperatorDetailProps {
@@ -122,18 +123,30 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
     }
   }, [activeTab, userRole, operator.feedbacks, targetRegistration, onUpdate]);
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64Photo = event.target?.result as string;
+    try {
+      // OTIMIZAÇÃO CRÍTICA: Comprime avatar para max 256x256 WebP/JPEG qualidade 0.82
+      // Reduz fotos de ~5MB para ~20KB, economizando 99.6% de tráfego no Supabase
+      const compressedPhoto = await compressImage(file, 256, 256, 0.82);
       if (operator) {
-        onSaveOperator({ ...operator, photoUrl: base64Photo });
+        onSaveOperator({ ...operator, photoUrl: compressedPhoto });
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.warn('Falha na compressão da foto, usando fallback padrão:', err);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64Photo = event.target?.result as string;
+        if (operator) {
+          onSaveOperator({ ...operator, photoUrl: base64Photo });
+        }
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      if (photoInputRef.current) photoInputRef.current.value = '';
+    }
   };
 
   const handleDeleteOperator = async () => {
@@ -348,6 +361,15 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // VALIDAÇÃO DE SEGURANÇA E OTIMIZAÇÃO DE DADOS (Limite seguro de 2.5 MB por documento)
+    const MAX_FILE_SIZE_BYTES = 2.5 * 1024 * 1024; // 2.5 MB
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      const sizeInMb = (file.size / (1024 * 1024)).toFixed(1);
+      alert(`O arquivo selecionado possui ${sizeInMb} MB.\n\nPara otimizar o banco de dados e evitar lentidão, o limite máximo por documento é de 2.5 MB. Por favor, anexe um arquivo menor ou reduza a resolução do PDF.`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const newDoc = {
@@ -372,38 +394,58 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate(-1)} className="p-2 hover:bg-white rounded-full transition-colors text-gray-500">
-            <ArrowLeft size={24} />
+    <div className="space-y-6 max-w-7xl mx-auto pb-12 animate-fade-in-up">
+      {/* Top Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200/60">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate(-1)}
+            className="p-2.5 bg-white border border-slate-200/80 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors shadow-sm"
+            title="Voltar"
+          >
+            <ArrowLeft size={18} />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Perfil do Colaborador</h1>
-            <p className="text-sm text-gray-500">{operator.name}</p>
+            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+              Ficha do Colaborador
+              <span className="text-xs font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200/60">
+                #{operator.registration}
+              </span>
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5">{operator.name} • {operator.role}</p>
           </div>
         </div>
 
-        {userRole === Role.SUPERVISOR && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={handleDeleteOperator}
-            className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-xl text-sm font-bold transition-colors border border-transparent hover:border-red-100"
+            onClick={() => navigate(userRole === Role.SUPERVISOR ? '/pdi' : '/my-pdi')}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-xl text-xs font-bold transition-all border border-blue-200 shadow-sm"
           >
-            <Trash2 size={18} />
-            <span className="hidden sm:inline">Excluir Colaborador</span>
+            <Target size={16} />
+            <span>PDI 360°</span>
           </button>
-        )}
+
+          {userRole === Role.SUPERVISOR && (
+            <button
+              onClick={handleDeleteOperator}
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-rose-600 hover:bg-rose-50 rounded-xl text-xs font-bold transition-all border border-rose-200/60 shadow-sm"
+            >
+              <Trash2 size={16} />
+              <span>Excluir Colaborador</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Lado Esquerdo: Info */}
         <div className="space-y-6">
-          <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center text-center">
+          <div className="bg-white p-6 sm:p-7 rounded-2xl shadow-sm border border-slate-200/80 flex flex-col items-center text-center">
             <div
-              className="relative group cursor-pointer mb-6"
+              className="relative group cursor-pointer mb-5"
               onClick={() => userRole === Role.SUPERVISOR && photoInputRef.current?.click()}
             >
-              <div className="w-32 h-32 rounded-3xl bg-blue-600 flex items-center justify-center text-4xl font-bold text-white shadow-xl overflow-hidden">
+              <div className="w-28 h-28 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-3xl font-extrabold text-white shadow-lg shadow-blue-500/20 overflow-hidden ring-4 ring-white">
                 {operator.photoUrl ? (
                   <img src={operator.photoUrl} alt={operator.name} className="w-full h-full object-cover" />
                 ) : (
@@ -411,8 +453,8 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
                 )}
               </div>
               {userRole === Role.SUPERVISOR && (
-                <div className="absolute inset-0 bg-black/40 rounded-3xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Camera className="text-white" size={24} />
+                <div className="absolute inset-0 bg-slate-950/50 rounded-2xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Camera className="text-white" size={22} />
                   <span className="sr-only">Trocar foto</span>
                 </div>
               )}
@@ -424,64 +466,66 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
                 onChange={handlePhotoUpload}
               />
             </div>
-            <h2 className="text-xl font-bold text-gray-900">{operator.name}</h2>
-            <p className="text-blue-600 font-semibold text-sm mb-6">{operator.role}</p>
+            <h2 className="text-lg font-bold text-slate-900 leading-tight">{operator.name}</h2>
+            <p className="text-blue-600 font-semibold text-xs mt-1 mb-5">{operator.role}</p>
 
             {/* Indicador de Acesso */}
             {operator.user_id ? (
-              <div className="w-full bg-green-50 border border-green-100 rounded-xl p-3 mb-6 flex items-center justify-center gap-2">
-                <ShieldAlert size={16} className="text-green-600" />
-                <span className="text-xs font-bold text-green-700">Acesso ao Sistema Ativo</span>
+              <div className="w-full bg-emerald-50 border border-emerald-200/60 rounded-xl p-2.5 mb-5 flex items-center justify-center gap-2">
+                <ShieldAlert size={15} className="text-emerald-600" />
+                <span className="text-xs font-bold text-emerald-700">Acesso ao Sistema Ativo</span>
               </div>
             ) : (
-              <div className="w-full mb-6">
+              <div className="w-full mb-5">
                 {userRole === Role.SUPERVISOR && (
                   <button
                     onClick={() => {
-                      setNewPassword('123456'); // Sugestão
+                      setNewPassword('123456');
                       setAccessModalOpen(true);
                     }}
-                    className="w-full bg-slate-900 text-white py-3 rounded-xl text-xs font-bold shadow-lg hover:bg-slate-800 transition-all flex items-center justify-center gap-2"
+                    className="w-full bg-slate-900 hover:bg-slate-800 text-white py-2.5 px-4 rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
                   >
-                    <Key size={16} />
-                    Criar Acesso / Senha
+                    <Key size={15} />
+                    <span>Criar Acesso / Senha</span>
                   </button>
                 )}
-                <p className="text-[10px] text-gray-400 mt-2 text-center">Usuário ainda não possui login.</p>
+                <p className="text-[10px] text-slate-400 mt-1.5 text-center">Colaborador sem credenciais criadas.</p>
               </div>
             )}
 
-            <div className="w-full grid grid-cols-2 gap-4 pt-6 border-t">
+            <div className="w-full grid grid-cols-2 gap-3 pt-5 border-t border-slate-100 text-left">
               <div>
-                <p className="text-xs text-gray-400 font-bold uppercase">Matrícula</p>
-                <p className="font-bold">#{operator.registration}</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Matrícula</p>
+                <p className="text-sm font-mono font-bold text-slate-800 mt-0.5">#{operator.registration}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-400 font-bold uppercase">Status</p>
-                <p className={`font-bold ${operator.active ? 'text-green-600' : 'text-red-500'}`}>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Status</p>
+                <span className={`inline-flex items-center gap-1 text-xs font-bold mt-0.5 ${operator.active ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${operator.active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                   {operator.active ? 'Ativo' : 'Inativo'}
-                </p>
+                </span>
               </div>
             </div>
           </div>
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-            <h3 className="font-bold mb-4">Dados Funcionais</h3>
-            <div className="space-y-4">
-              <div className="flex items-center gap-4 text-sm">
-                <Briefcase className="text-gray-400" size={18} />
-                <span>{operator.workMode}</span>
+
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200/80">
+            <h3 className="font-extrabold text-xs uppercase tracking-wider text-slate-400 mb-4">Dados Funcionais</h3>
+            <div className="space-y-3.5">
+              <div className="flex items-center gap-3 text-xs font-medium text-slate-700">
+                <Briefcase className="text-slate-400 shrink-0" size={16} />
+                <span>Modalidade: <strong className="text-slate-900">{operator.workMode}</strong></span>
               </div>
-              <div className="flex items-center gap-4 text-sm">
-                <Calendar className="text-gray-400" size={18} />
-                <span>Admissão: {operator.admissionDate}</span>
+              <div className="flex items-center gap-3 text-xs font-medium text-slate-700">
+                <Calendar className="text-slate-400 shrink-0" size={16} />
+                <span>Admissão: <strong className="text-slate-900">{operator.admissionDate}</strong></span>
               </div>
-              <div className="flex items-center gap-4 text-sm">
-                <AlertTriangle className="text-gray-400" size={18} />
-                <span>Vínculo: {operator.linkType}</span>
+              <div className="flex items-center gap-3 text-xs font-medium text-slate-700">
+                <AlertTriangle className="text-slate-400 shrink-0" size={16} />
+                <span>Vínculo: <strong className="text-slate-900">{operator.linkType}</strong></span>
               </div>
-              <div className="flex items-center gap-4 text-sm">
-                <Info className="text-gray-400" size={18} />
-                <span>Atribuição: {operator.classification || 'Outros'}</span>
+              <div className="flex items-center gap-3 text-xs font-medium text-slate-700">
+                <Info className="text-slate-400 shrink-0" size={16} />
+                <span>Atribuição: <strong className="text-slate-900">{operator.classification || 'Outros'}</strong></span>
               </div>
             </div>
           </div>
@@ -489,40 +533,43 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
 
         {/* Lado Direito: KPIs e Abas */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-white p-4 rounded-2xl border">
-              <p className="text-xs font-bold text-gray-400 uppercase">TMA</p>
-              <p className={`text-xl font-black ${getStatusColor(stats.tma, goals.tma, 'lower')}`}>
+          <div className="grid grid-cols-3 gap-3 sm:gap-4">
+            <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">TMA Médio</p>
+              <p className={`text-xl sm:text-2xl font-extrabold mt-1 ${getStatusColor(stats.tma, goals.tma, 'lower')}`}>
                 {stats.tma === '00:00:00' ? '-' : stats.tma}
               </p>
+              <span className="text-[10px] text-slate-400 font-medium">Meta: {goals.tma}</span>
             </div>
-            <div className="bg-white p-4 rounded-2xl border">
-              <p className="text-xs font-bold text-gray-400 uppercase">NPS</p>
-              <p className={`text-xl font-black ${getStatusColor(stats.nps, goals.nps)}`}>
+            <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">NPS Médio</p>
+              <p className={`text-xl sm:text-2xl font-extrabold mt-1 ${getStatusColor(stats.nps, goals.nps)}`}>
                 {formatDecimal(stats.nps)}
               </p>
+              <span className="text-[10px] text-slate-400 font-medium">Meta: {goals.nps}</span>
             </div>
-            <div className="bg-white p-4 rounded-2xl border">
-              <p className="text-xs font-bold text-gray-400 uppercase">Qualidade</p>
-              <p className={`text-xl font-black ${getStatusColor(stats.monitoria, goals.monitoria)}`}>
+            <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-sm">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Qualidade</p>
+              <p className={`text-xl sm:text-2xl font-extrabold mt-1 ${getStatusColor(stats.monitoria, goals.monitoria)}`}>
                 {formatDecimal(stats.monitoria)}
               </p>
+              <span className="text-[10px] text-slate-400 font-medium">Meta: {goals.monitoria}</span>
             </div>
           </div>
 
-          <div className="flex gap-1 p-1 bg-gray-100 rounded-2xl w-fit">
+          <div className="flex gap-1.5 p-1 bg-slate-200/70 rounded-xl w-fit">
             {(['kpis', 'feedback', 'documents'] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${activeTab === tab ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`px-4 sm:px-6 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer ${activeTab === tab ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600 hover:text-slate-900'}`}
               >
                 {tab === 'kpis' ? 'Indicadores' : tab === 'feedback' ? 'Feedbacks' : 'Documentos'}
               </button>
             ))}
           </div>
 
-          <div className="bg-white p-8 rounded-3xl shadow-sm border min-h-[400px]">
+          <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-slate-200/80 min-h-[400px]">
             {activeTab === 'kpis' && (
               <div className="space-y-6">
                 <div className="flex justify-between items-center">

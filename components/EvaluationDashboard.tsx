@@ -296,25 +296,27 @@ const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({ operators }) 
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-fade-in-up">
             {/* Header com Filtros */}
-            <div className="bg-white rounded-2xl border shadow-sm p-6">
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 sm:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                        <BarChart3 className="text-blue-600" size={24} />
+                        <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center ring-1 ring-blue-500/20">
+                            <BarChart3 size={22} />
+                        </div>
                         <div>
-                            <h3 className="font-bold text-gray-900">Dashboard de Avaliações</h3>
-                            <p className="text-xs text-gray-500">Visão consolidada do desempenho da equipe</p>
+                            <h3 className="font-extrabold text-slate-900 text-base">Dashboard Analítico de Avaliações</h3>
+                            <p className="text-xs text-slate-500">Visão consolidada de competências e scores de 1.0 a 5.0</p>
                         </div>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3">
-                        <div className="flex items-center gap-2">
-                            <User size={16} className="text-gray-400" />
+                        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
+                            <User size={15} className="text-slate-400" />
                             <select
                                 value={selectedOperatorFilter}
                                 onChange={(e) => setSelectedOperatorFilter(e.target.value)}
-                                className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 outline-none max-w-[200px]"
+                                className="bg-transparent text-xs sm:text-sm font-semibold text-slate-700 outline-none cursor-pointer max-w-[180px]"
                             >
                                 <option value="all">Toda Equipe</option>
                                 {operators
@@ -329,29 +331,29 @@ const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({ operators }) 
                             </select>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            <Filter size={16} className="text-gray-400" />
+                        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
+                            <Calendar size={15} className="text-slate-400" />
                             <input
                                 type="month"
                                 value={startDate}
                                 onChange={(e) => setStartDate(e.target.value)}
-                                className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                className="bg-transparent text-xs sm:text-sm font-semibold text-slate-700 outline-none cursor-pointer"
                             />
-                            <span className="text-gray-400">até</span>
+                            <span className="text-xs text-slate-400 font-bold">até</span>
                             <input
                                 type="month"
                                 value={endDate}
                                 onChange={(e) => setEndDate(e.target.value)}
-                                className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 outline-none"
+                                className="bg-transparent text-xs sm:text-sm font-semibold text-slate-700 outline-none cursor-pointer"
                             />
                         </div>
 
                         <button
                             onClick={exportToExcel}
-                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 transition-colors"
+                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl font-bold text-xs sm:text-sm shadow-md shadow-emerald-600/20 active:scale-95 transition-all cursor-pointer"
                         >
-                            <FileSpreadsheet size={18} />
-                            Exportar Excel
+                            <FileSpreadsheet size={16} />
+                            Exportar Planilha
                         </button>
                     </div>
                 </div>
@@ -359,56 +361,60 @@ const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({ operators }) 
 
             {/* Cards de Estatísticas */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-4 text-white">
-                    <div className="flex items-center gap-2 opacity-80 text-sm font-medium">
-                        <Calendar size={16} />
+                <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm relative overflow-hidden">
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-blue-500" />
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        <Calendar size={15} className="text-blue-500" />
                         Avaliações
                     </div>
-                    <p className="text-3xl font-black mt-2">{totalAvaliacoes}</p>
-                    <p className="text-xs opacity-70 mt-1">no período selecionado</p>
+                    <p className="text-3xl font-extrabold text-slate-900 mt-2">{totalAvaliacoes}</p>
+                    <p className="text-[11px] text-slate-400 mt-1">no período filtrado</p>
                 </div>
 
-                <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-2xl p-4 text-white">
-                    <div className="flex items-center gap-2 opacity-80 text-sm font-medium">
-                        <Users size={16} />
-                        Operadores
+                <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm relative overflow-hidden">
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-emerald-500" />
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        <Users size={15} className="text-emerald-500" />
+                        Colaboradores
                     </div>
-                    <p className="text-3xl font-black mt-2">{operadoresAvaliados}</p>
-                    <p className="text-xs opacity-70 mt-1">avaliados</p>
+                    <p className="text-3xl font-extrabold text-slate-900 mt-2">{operadoresAvaliados}</p>
+                    <p className="text-[11px] text-slate-400 mt-1">avaliados</p>
                 </div>
 
-                <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-2xl p-4 text-white">
-                    <div className="flex items-center gap-2 opacity-80 text-sm font-medium">
-                        <TrendingUp size={16} />
+                <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm relative overflow-hidden">
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-amber-500" />
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        <TrendingUp size={15} className="text-amber-500" />
                         Média Geral
                     </div>
-                    <p className="text-3xl font-black mt-2">{mediaGeral}</p>
-                    <p className="text-xs opacity-70 mt-1">de 5.0</p>
+                    <p className="text-3xl font-extrabold text-slate-900 mt-2">{mediaGeral}</p>
+                    <p className="text-[11px] text-slate-400 mt-1">escala de 1 a 5.0</p>
                 </div>
 
-                <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-2xl p-4 text-white">
-                    <div className="flex items-center gap-2 opacity-80 text-sm font-medium">
-                        <Award size={16} />
-                        Critérios
+                <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm relative overflow-hidden">
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-indigo-500" />
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        <Award size={15} className="text-indigo-500" />
+                        Competências
                     </div>
-                    <p className="text-3xl font-black mt-2">13</p>
-                    <p className="text-xs opacity-70 mt-1">avaliados por operador</p>
+                    <p className="text-3xl font-extrabold text-slate-900 mt-2">13</p>
+                    <p className="text-[11px] text-slate-400 mt-1">itens por avaliação</p>
                 </div>
             </div>
 
             {allEvaluations.length === 0 ? (
-                <div className="bg-white rounded-2xl border shadow-sm p-12 text-center">
-                    <BarChart3 size={48} className="mx-auto text-gray-300 mb-4" />
-                    <h3 className="font-bold text-gray-700">Nenhuma avaliação no período</h3>
-                    <p className="text-sm text-gray-400 mt-1">Ajuste os filtros de data ou realize novas avaliações</p>
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-12 sm:p-16 text-center">
+                    <BarChart3 size={44} className="mx-auto text-slate-300 mb-4" />
+                    <h3 className="font-bold text-slate-800 text-base">Nenhuma avaliação encontrada</h3>
+                    <p className="text-xs sm:text-sm text-slate-400 mt-1">Ajuste os filtros de período ou operador acima</p>
                 </div>
             ) : (
                 <>
                     {/* Gráficos em Grid */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         {/* Radar - Média por Critério */}
-                        <div className="bg-white rounded-2xl border shadow-sm p-6">
-                            <h4 className="font-bold text-gray-900 mb-4">Média por Critério</h4>
+                        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6">
+                            <h4 className="font-extrabold text-slate-900 text-sm mb-4">Média por Critério (Radar)</h4>
                             <ResponsiveContainer width="100%" height={300}>
                                 <RadarChart data={radarData}>
                                     <PolarGrid strokeDasharray="3 3" />
