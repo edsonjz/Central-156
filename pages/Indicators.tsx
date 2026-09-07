@@ -12,7 +12,10 @@ import {
   Heart,
   CheckCircle,
   Filter,
-  Download
+  Download,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import {
   BarChart,
@@ -187,10 +190,49 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
     exportToCSV(dataToExport, `Relatorio_Geral_${MONTHS[Number(selectedMonth) - 1]}_${selectedYear}`);
   };
 
-  const filteredList = rankingData.filter(op =>
-    op.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    op.registration.includes(searchTerm)
-  );
+  // Ordenação da Tabela de Performance
+  type TableSortColumn = 'name' | 'tma' | 'nps' | 'monitoria';
+  type TableSortDirection = 'asc' | 'desc';
+
+  const [sortColumn, setSortColumn] = useState<TableSortColumn | null>(null);
+  const [sortDirection, setSortDirection] = useState<TableSortDirection>('desc');
+
+  const handleSort = (column: TableSortColumn) => {
+    if (sortColumn === column) {
+      // Alterna direção
+      setSortDirection(prev => prev === 'desc' ? 'asc' : 'desc');
+    } else {
+      setSortColumn(column);
+      // Para 'name': padrão inicial A-Z ('asc').
+      // Para métricas numéricas (TMA, NPS, Monitoria): padrão inicial maior para menor ('desc').
+      setSortDirection(column === 'name' ? 'asc' : 'desc');
+    }
+  };
+
+  const sortedAndFilteredList = useMemo(() => {
+    const list = rankingData.filter(op =>
+      op.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      op.registration.includes(searchTerm)
+    );
+
+    if (!sortColumn) return list;
+
+    return [...list].sort((a, b) => {
+      let comparison = 0;
+
+      if (sortColumn === 'name') {
+        comparison = a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
+      } else if (sortColumn === 'tma') {
+        comparison = (a.avgTmaSeconds || 0) - (b.avgTmaSeconds || 0);
+      } else if (sortColumn === 'nps') {
+        comparison = (Number(a.avgNps) || 0) - (Number(b.avgNps) || 0);
+      } else if (sortColumn === 'monitoria') {
+        comparison = (Number(a.avgMonitoria) || 0) - (Number(b.avgMonitoria) || 0);
+      }
+
+      return sortDirection === 'desc' ? -comparison : comparison;
+    });
+  }, [rankingData, searchTerm, sortColumn, sortDirection]);
 
   const years = Array.from({ length: 5 }, (_, i) => String(new Date().getFullYear() - i));
 
@@ -401,28 +443,106 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
           </div>
 
           <div className="overflow-hidden rounded-xl border border-slate-200/80 shadow-sm">
-            <div className="p-4 bg-gradient-to-r from-slate-50 to-slate-100/50 border-b border-slate-200/80 flex justify-between items-center">
-              <h3 className="font-black text-slate-700 text-sm uppercase tracking-wide">Tabela de Performance — {MONTHS[Number(selectedMonth) - 1]}/{selectedYear}</h3>
-              <span className="text-[10px] font-black text-blue-700 bg-blue-100 px-3 py-1.5 rounded-full shadow-sm">TOTAL: {filteredList.length}</span>
+            <div className="p-4 bg-gradient-to-r from-slate-50 to-slate-100/50 border-b border-slate-200/80 flex flex-wrap justify-between items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-black text-slate-700 text-sm uppercase tracking-wide">
+                  Tabela de Performance — {MONTHS[Number(selectedMonth) - 1]}/{selectedYear}
+                </h3>
+                {sortColumn && (
+                  <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200/80 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 shadow-sm">
+                    <span>
+                      Ordenado por: <strong>{sortColumn === 'name' ? 'Operador' : sortColumn === 'tma' ? 'TMA Médio' : sortColumn.toUpperCase()}</strong>
+                      {' '}({sortColumn === 'name' ? (sortDirection === 'asc' ? 'A → Z' : 'Z → A') : (sortDirection === 'desc' ? 'Maior → Menor' : 'Menor → Maior')})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSortColumn(null)}
+                      className="text-slate-400 hover:text-rose-600 font-black ml-0.5"
+                      title="Remover ordenação"
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
+              </div>
+              <span className="text-[10px] font-black text-blue-700 bg-blue-100 px-3 py-1.5 rounded-full shadow-sm">
+                TOTAL: {sortedAndFilteredList.length}
+              </span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest bg-white/80 border-b border-slate-100">
-                    <th className="px-6 py-4">Operador</th>
-                    <th className="px-4 py-4 text-center">TMA Médio</th>
-                    <th className="px-4 py-4 text-center">NPS</th>
-                    <th className="px-4 py-4 text-center">Monitoria</th>
-                    <th className="px-6 py-4 text-right">Detalhes</th>
+                  <tr className="text-[10px] font-black uppercase tracking-widest bg-white/80 border-b border-slate-100 select-none">
+                    <th className="px-6 py-4">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('name')}
+                        className={`group inline-flex items-center gap-1.5 font-black transition-colors ${sortColumn === 'name' ? 'text-blue-600' : 'text-slate-500 hover:text-slate-900'}`}
+                        title="Clique para alternar: A-Z ou Z-A"
+                      >
+                        <span>Operador</span>
+                        {sortColumn === 'name' ? (
+                          sortDirection === 'asc' ? <ArrowUp size={13} className="text-blue-600 shrink-0" /> : <ArrowDown size={13} className="text-blue-600 shrink-0" />
+                        ) : (
+                          <ArrowUpDown size={12} className="text-slate-300 group-hover:text-slate-500 transition-colors shrink-0" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-4 py-4 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('tma')}
+                        className={`group inline-flex items-center gap-1.5 font-black transition-colors mx-auto ${sortColumn === 'tma' ? 'text-blue-600' : 'text-slate-500 hover:text-slate-900'}`}
+                        title="Clique para alternar: Maior para o menor ou Menor para o maior"
+                      >
+                        <span>TMA Médio</span>
+                        {sortColumn === 'tma' ? (
+                          sortDirection === 'desc' ? <ArrowDown size={13} className="text-blue-600 shrink-0" /> : <ArrowUp size={13} className="text-blue-600 shrink-0" />
+                        ) : (
+                          <ArrowUpDown size={12} className="text-slate-300 group-hover:text-slate-500 transition-colors shrink-0" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-4 py-4 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('nps')}
+                        className={`group inline-flex items-center gap-1.5 font-black transition-colors mx-auto ${sortColumn === 'nps' ? 'text-blue-600' : 'text-slate-500 hover:text-slate-900'}`}
+                        title="Clique para alternar: Maior para o menor ou Menor para o maior"
+                      >
+                        <span>NPS</span>
+                        {sortColumn === 'nps' ? (
+                          sortDirection === 'desc' ? <ArrowDown size={13} className="text-blue-600 shrink-0" /> : <ArrowUp size={13} className="text-blue-600 shrink-0" />
+                        ) : (
+                          <ArrowUpDown size={12} className="text-slate-300 group-hover:text-slate-500 transition-colors shrink-0" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-4 py-4 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleSort('monitoria')}
+                        className={`group inline-flex items-center gap-1.5 font-black transition-colors mx-auto ${sortColumn === 'monitoria' ? 'text-blue-600' : 'text-slate-500 hover:text-slate-900'}`}
+                        title="Clique para alternar: Maior para o menor ou Menor para o maior"
+                      >
+                        <span>Monitoria</span>
+                        {sortColumn === 'monitoria' ? (
+                          sortDirection === 'desc' ? <ArrowDown size={13} className="text-blue-600 shrink-0" /> : <ArrowUp size={13} className="text-blue-600 shrink-0" />
+                        ) : (
+                          <ArrowUpDown size={12} className="text-slate-300 group-hover:text-slate-500 transition-colors shrink-0" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="px-6 py-4 text-right text-slate-400">Detalhes</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {filteredList.length === 0 ? (
+                  {sortedAndFilteredList.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="py-12 text-center text-slate-400 italic">Nenhum registro encontrado para o período selecionado.</td>
                     </tr>
                   ) : (
-                    filteredList.map((op) => (
+                    sortedAndFilteredList.map((op) => (
                       <tr key={op.registration} className="hover:bg-blue-50/30 transition-all duration-200 group">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
