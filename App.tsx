@@ -29,6 +29,8 @@ import PerformanceEvaluation from './pages/PerformanceEvaluation';
 import PdiManagement from './pages/PdiManagement';
 import MyPdi from './pages/MyPdi';
 import Login from './pages/Login';
+import { PdiNotificationBell } from './components/pdi/PdiNotificationBell';
+import { PdiToast } from './components/pdi/PdiToast';
 import { AuthProvider, useAuth } from './AuthContext';
 import { GOALS as INITIAL_GOALS } from './constants';
 import { Operator, Role, TeamGoals } from './types';
@@ -377,7 +379,16 @@ const AppContent: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3 sm:gap-4">
+            {/* Sino de Notificações / Alertas de PDI */}
+            <PdiNotificationBell 
+              supabase={supabase}
+              userRole={isAdmin ? 'Supervisor' : 'Operador'}
+              operatorRegistration={userProfile?.registration}
+            />
+
+            <div className="w-px h-6 bg-slate-200" />
+
             <div className="text-right hidden sm:block">
               <p className="text-xs font-bold text-slate-900 leading-tight">
                 {userProfile?.name || user?.user_metadata?.name || user?.email || 'Usuário'}
@@ -445,6 +456,9 @@ const AppContent: React.FC = () => {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
+
+        {/* Toast Flutuante de Alertas de PDI */}
+        <PdiToast />
       </main>
     </div>
   );

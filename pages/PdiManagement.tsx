@@ -27,7 +27,8 @@ import {
 } from 'lucide-react';
 import { Operator, Role } from '../types';
 import { PDI, PDIStatus, PDIType, PDIResult, ActionCategory702010, PDIAction } from '../types/pdi';
-import { PdiService, calculateDynamicPdiStatus } from '../services/pdiService';
+import { PdiService, calculateDynamicPdiStatus, calculatePdiOverallProgress } from '../services/pdiService';
+import { NotificationService } from '../services/notificationService';
 import { PdiWizardModal } from '../components/pdi/PdiWizardModal';
 import { PdiReportModal } from '../components/pdi/PdiReportModal';
 import { useAuth } from '../AuthContext';
@@ -127,8 +128,21 @@ const PdiManagement: React.FC<PdiManagementProps> = ({ operators }) => {
   }, [pdis, operators, searchTerm, statusFilter, typeFilter]);
 
   // Salvar PDI do Wizard
+  // Salvar PDI do Wizard
   const handleSaveWizard = async (pdiData: Partial<PDI>) => {
-    await PdiService.savePdi(supabase, pdiData);
+    const saved = await PdiService.savePdi(supabase, pdiData);
+    if (saved && saved.operator_registration) {
+      try {
+        await NotificationService.notifyOperator(supabase, {
+          pdiId: saved.id,
+          operatorRegistration: saved.operator_registration,
+          supervisorName: userProfile?.name || 'Supervisor',
+          title: pdiData.id ? 'PDI Atualizado pelo Supervisor' : 'Novo Ciclo de PDI Atribuído!',
+          message: `Seu supervisor ${userProfile?.name || 'Supervisor'} configurou seu PDI "${saved.titulo}" com ${saved.acoes?.length || 0} ações de desenvolvimento.`,
+          type: pdiData.id ? 'pdi_updated' : 'pdi_created'
+        });
+      } catch {}
+    }
     await loadData();
   };
 
@@ -150,6 +164,17 @@ const PdiManagement: React.FC<PdiManagementProps> = ({ operators }) => {
       pontos_atencao: feedbackAtencao,
       orientacoes: feedbackOrientacoes
     });
+    // Notifica Operador
+    try {
+      await NotificationService.notifyOperator(supabase, {
+        pdiId: feedbackModalPdi.id,
+        operatorRegistration: feedbackModalPdi.operator_registration,
+        supervisorName: userProfile?.name || 'Supervisor',
+        title: 'Novo Feedback no PDI',
+        message: `Seu supervisor registrou um feedback de ${feedbackTipo}: "${feedbackPositivos || feedbackAtencao || feedbackOrientacoes}"`,
+        type: 'feedback_added'
+      });
+    } catch {}
     setFeedbackModalPdi(null);
     setFeedbackPositivos('');
     setFeedbackAtencao('');
@@ -171,6 +196,17 @@ const PdiManagement: React.FC<PdiManagementProps> = ({ operators }) => {
       descricao: recogDesc,
       concedido_por: userProfile?.name || 'Supervisor'
     });
+    // Notifica Operador
+    try {
+      await NotificationService.notifyOperator(supabase, {
+        pdiId: recogModalPdi.id,
+        operatorRegistration: recogModalPdi.operator_registration,
+        supervisorName: userProfile?.name || 'Supervisor',
+        title: `🏆 Reconhecimento: ${recogTitulo}`,
+        message: `Parabéns! O supervisor ${userProfile?.name || 'Supervisor'} concedeu um reconhecimento a você: "${recogDesc}"`,
+        type: 'recognition_added'
+      });
+    } catch {}
     setRecogModalPdi(null);
     setRecogTitulo('');
     setRecogDesc('');
@@ -182,6 +218,17 @@ const PdiManagement: React.FC<PdiManagementProps> = ({ operators }) => {
   const handleFinishCycle = async () => {
     if (!finishModalPdi) return;
     await PdiService.finishPdiCycle(supabase, finishModalPdi.id, resultadoFinal, comentarioFinal);
+    // Notifica Operador
+    try {
+      await NotificationService.notifyOperator(supabase, {
+        pdiId: finishModalPdi.id,
+        operatorRegistration: finishModalPdi.operator_registration,
+        supervisorName: userProfile?.name || 'Supervisor',
+        title: 'Ciclo de PDI Concluído e Avaliado!',
+        message: `Seu supervisor finalizou o ciclo com o resultado: "${resultadoFinal}". Comentário: ${comentarioFinal || 'Ciclo encerrado.'}`,
+        type: 'pdi_finished'
+      });
+    } catch {}
     setFinishModalPdi(null);
     setComentarioFinal('');
     await loadData();
@@ -272,6 +319,19 @@ const PdiManagement: React.FC<PdiManagementProps> = ({ operators }) => {
     const updatedAcoes = selectedPdiForDetail.acoes.map(a => a.id === actionId ? { ...a, status: newStatus as any } : a);
     const updatedPdi: PDI = { ...selectedPdiForDetail, acoes: updatedAcoes };
     setSelectedPdiForDetail(updatedPdi);
+
+    // Notifica Operador
+    try {
+      await NotificationService.notifyOperator(supabase, {
+        pdiId: selectedPdiForDetail.id,
+        operatorRegistration: selectedPdiForDetail.operator_registration,
+        supervisorName: userProfile?.name || 'Supervisor',
+        title: newStatus === 'Concluído' ? 'Ação Marcada como Concluída pelo Supervisor' : 'Ação de PDI em Andamento',
+        message: `O supervisor ${userProfile?.name || 'Supervisor'} atualizou o status da ação "${act.descricao}" para "${newStatus}".`,
+        type: 'action_completed'
+      });
+    } catch {}
+
     await loadData();
   };
 
@@ -487,13 +547,13 @@ const PdiManagement: React.FC<PdiManagementProps> = ({ operators }) => {
                         <td className="px-4 py-4">
                           <div className="space-y-1.5 w-32">
                             <div className="flex justify-between text-[11px] font-mono">
-                              <span className="text-slate-500 font-bold">{pdi.progresso}%</span>
+                              <span className="text-slate-700 font-bold">{calculatePdiOverallProgress(pdi)}%</span>
                               <span className="text-slate-400">{pdi.acoes.filter(a => a.status === 'Concluído').length}/{pdi.acoes.length} ações</span>
                             </div>
                             <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
                               <div 
-                                className={`h-full rounded-full transition-all duration-500 ${pdi.progresso >= 70 ? 'bg-emerald-500' : pdi.progresso >= 40 ? 'bg-blue-500' : 'bg-amber-500'}`}
-                                style={{ width: `${pdi.progresso}%` }}
+                                className={`h-full rounded-full transition-all duration-500 ${calculatePdiOverallProgress(pdi) >= 70 ? 'bg-emerald-500' : calculatePdiOverallProgress(pdi) >= 40 ? 'bg-blue-500' : 'bg-amber-500'}`}
+                                style={{ width: `${calculatePdiOverallProgress(pdi)}%` }}
                               />
                             </div>
                           </div>
@@ -703,7 +763,7 @@ const PdiManagement: React.FC<PdiManagementProps> = ({ operators }) => {
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">Progresso Geral</span>
-                  <span className="font-bold text-sm text-blue-600 font-mono">{selectedPdiForDetail.progresso}%</span>
+                  <span className="font-bold text-sm text-blue-600 font-mono">{calculatePdiOverallProgress(selectedPdiForDetail)}%</span>
                 </div>
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">Foco / Dimensões</span>

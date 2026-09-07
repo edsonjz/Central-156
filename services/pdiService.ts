@@ -28,7 +28,11 @@ const loadFromStorage = (): PDI[] => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return [];
-    return JSON.parse(raw);
+    const list: PDI[] = JSON.parse(raw);
+    return list.map(p => ({
+      ...p,
+      progresso: calculatePdiOverallProgress(p)
+    }));
   } catch (e) {
     console.error('[PdiService] Erro ao carregar do localStorage:', e);
     return [];
@@ -44,7 +48,7 @@ const saveToStorage = (pdis: PDI[]) => {
   }
 };
 
-// Calcula status automático do PDI com base em prazos e ações
+// Calcula status dinâmico baseado em prazos
 export const calculateDynamicPdiStatus = (pdi: PDI): PDIStatus => {
   if (pdi.status === 'Concluído' || pdi.status === 'Cancelado') {
     return pdi.status;
@@ -78,27 +82,30 @@ export const calculateDynamicPdiStatus = (pdi: PDI): PDIStatus => {
   return 'Em evolução';
 };
 
-// Calcula progresso geral ponderado do PDI (0 a 100%)
+// Calcula progresso geral do PDI (0 a 100%)
+// Reflete com exatidão o cumprimento das ações propostas (ex: 3/3 ações = 100%)
 export const calculatePdiOverallProgress = (pdi: PDI): number => {
+  // 1. Se o ciclo do PDI foi marcado como Concluído, o progresso é 100%
+  if (pdi.status === 'Concluído') return 100;
+
+  // 2. Se não tem ações cadastradas, verifica objetivos se houver
   if (!pdi.acoes || pdi.acoes.length === 0) {
     if (!pdi.objetivos || pdi.objetivos.length === 0) return 0;
     const avg = pdi.objetivos.reduce((acc, o) => acc + (o.progresso || 0), 0) / pdi.objetivos.length;
     return Math.round(avg);
   }
 
-  // Peso das ações: 60% ações concluídas, 40% progresso dos objetivos
+  // 3. O progresso reflete diretamente a execução das ações (70/20/10)
+  const total = pdi.acoes.length;
   const completedActions = pdi.acoes.filter(a => a.status === 'Concluído').length;
-  const actionProgress = (completedActions / pdi.acoes.length) * 100;
+  const inProgressActions = pdi.acoes.filter(a => a.status === 'Em andamento').length;
 
-  let objProgress = 0;
-  if (pdi.objetivos && pdi.objetivos.length > 0) {
-    objProgress = pdi.objetivos.reduce((acc, o) => acc + (o.progresso || 0), 0) / pdi.objetivos.length;
-  } else {
-    objProgress = actionProgress;
-  }
+  // Se todas as ações cadastradas foram concluídas (ex: 3 de 3): 100%
+  if (completedActions === total) return 100;
 
-  const overall = Math.round((actionProgress * 0.6) + (objProgress * 0.4));
-  return Math.min(100, Math.max(0, overall));
+  // Ponderação: Ações concluídas = 100%, em andamento = 50%
+  const score = ((completedActions * 100) + (inProgressActions * 50)) / total;
+  return Math.min(100, Math.max(0, Math.round(score)));
 };
 
 export class PdiService {
@@ -121,14 +128,18 @@ export class PdiService {
           .order('created_at', { ascending: false });
 
         if (!error && data) {
-          cloudPdis = data.map((item: any) => ({
-            ...item,
-            objetivos: item.objetivos || [],
-            acoes: item.acoes || [],
-            competencias: item.competencias || [],
-            feedbacks: item.feedbacks || [],
-            reconhecimentos: item.reconhecimentos || []
-          }));
+          cloudPdis = data.map((item: any) => {
+            const p = {
+              ...item,
+              objetivos: item.objetivos || [],
+              acoes: item.acoes || [],
+              competencias: item.competencias || [],
+              feedbacks: item.feedbacks || [],
+              reconhecimentos: item.reconhecimentos || []
+            };
+            p.progresso = calculatePdiOverallProgress(p);
+            return p;
+          });
         }
       } catch (err) {
         // Tabela não existe ou offline
@@ -171,14 +182,18 @@ export class PdiService {
           .order('created_at', { ascending: false });
 
         if (!error && data) {
-          operatorPdis = data.map((item: any) => ({
-            ...item,
-            objetivos: item.objetivos || [],
-            acoes: item.acoes || [],
-            competencias: item.competencias || [],
-            feedbacks: item.feedbacks || [],
-            reconhecimentos: item.reconhecimentos || []
-          }));
+          operatorPdis = data.map((item: any) => {
+            const p = {
+              ...item,
+              objetivos: item.objetivos || [],
+              acoes: item.acoes || [],
+              competencias: item.competencias || [],
+              feedbacks: item.feedbacks || [],
+              reconhecimentos: item.reconhecimentos || []
+            };
+            p.progresso = calculatePdiOverallProgress(p);
+            return p;
+          });
         }
       } catch (err) {
         console.warn('[PdiService] Falha na consulta direta do operador no Supabase, usando fallback local:', err);
@@ -389,6 +404,7 @@ export class PdiService {
     if (!pdi) return null;
 
     pdi.status = 'Concluído';
+    pdi.progresso = 100;
     pdi.resultado_final = resultadoFinal;
     pdi.avaliacao_final_comentario = comentario;
     pdi.data_encerramento = new Date().toISOString();
@@ -398,6 +414,7 @@ export class PdiService {
       try {
         await supabase.from('pdis').update({
           status: 'Concluído',
+          progresso: 100,
           resultado_final: resultadoFinal,
           avaliacao_final_comentario: comentario,
           data_encerramento: pdi.data_encerramento,

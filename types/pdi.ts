@@ -166,3 +166,31 @@ export interface PDISummaryStats {
   acoesAtrasadas: number;
   taxaMediaProgresso: number;
 }
+
+// Tipos e Interface de Notificações / Alertas de PDI
+export type PDINotificationType = 
+  | 'pdi_created' 
+  | 'pdi_updated'
+  | 'action_completed' 
+  | 'action_updated' 
+  | 'evidence_added' 
+  | 'feedback_added' 
+  | 'feedback_replied'
+  | 'recognition_added' 
+  | 'pdi_finished';
+
+export interface PDINotification {
+  id: string;
+  pdi_id?: string;
+  recipient_role: 'Supervisor' | 'Operador' | 'All';
+  recipient_registration?: string; // Se for para operador específico (matrícula)
+  sender_name: string;
+  sender_role: 'Supervisor' | 'Operador';
+  title: string;
+  message: string;
+  type: PDINotificationType;
+  read: boolean;
+  created_at: string; // ISO string
+  action_url?: string;
+}
+

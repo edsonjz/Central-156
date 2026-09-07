@@ -19,7 +19,8 @@ import {
 } from 'lucide-react';
 import { Operator } from '../types';
 import { PDI, PDIAction } from '../types/pdi';
-import { PdiService, calculateDynamicPdiStatus } from '../services/pdiService';
+import { PdiService, calculateDynamicPdiStatus, calculatePdiOverallProgress } from '../services/pdiService';
+import { NotificationService } from '../services/notificationService';
 import { useAuth } from '../AuthContext';
 import { getGapClassification } from '../constants/pdiConstants';
 
@@ -71,6 +72,19 @@ const MyPdi: React.FC<MyPdiProps> = ({ operators }) => {
     if (!activePdi) return;
     const newStatus = action.status === 'Concluído' ? 'Em andamento' : 'Concluído';
     await PdiService.updateAction(supabase, activePdi.id, action.id, { status: newStatus });
+
+    // Dispara alerta para o Supervisor
+    try {
+      await NotificationService.notifySupervisor(supabase, {
+        pdiId: activePdi.id,
+        operatorName: operator?.name || userProfile?.name || 'Operador',
+        operatorRegistration: operator?.registration || userProfile?.registration,
+        title: newStatus === 'Concluído' ? 'Ação do PDI Concluída!' : 'Ação de PDI em Andamento',
+        message: `${operator?.name || 'O colaborador'} atualizou a ação "${action.descricao}" para "${newStatus}".`,
+        type: 'action_completed'
+      });
+    } catch {}
+
     await loadPdis();
   };
 
@@ -78,6 +92,20 @@ const MyPdi: React.FC<MyPdiProps> = ({ operators }) => {
   const handleSaveActionEvidence = async (actionId: string) => {
     if (!activePdi) return;
     await PdiService.updateAction(supabase, activePdi.id, actionId, { comentario_operador: actionEvidence });
+    
+    const act = activePdi.acoes.find(a => a.id === actionId);
+    // Dispara alerta para o Supervisor
+    try {
+      await NotificationService.notifySupervisor(supabase, {
+        pdiId: activePdi.id,
+        operatorName: operator?.name || userProfile?.name || 'Operador',
+        operatorRegistration: operator?.registration || userProfile?.registration,
+        title: 'Nova Evidência/Comentário Registrado',
+        message: `${operator?.name || 'O colaborador'} adicionou evidência na ação: "${act?.descricao || 'Ação 70/20/10'}".`,
+        type: 'evidence_added'
+      });
+    } catch {}
+
     setEditingActionId(null);
     setActionEvidence('');
     await loadPdis();
@@ -90,6 +118,19 @@ const MyPdi: React.FC<MyPdiProps> = ({ operators }) => {
     if (fb) {
       fb.comentario_operador = feedbackReply;
       await PdiService.savePdi(supabase, activePdi);
+
+      // Dispara alerta para o Supervisor
+      try {
+        await NotificationService.notifySupervisor(supabase, {
+          pdiId: activePdi.id,
+          operatorName: operator?.name || userProfile?.name || 'Operador',
+          operatorRegistration: operator?.registration || userProfile?.registration,
+          title: 'Resposta a Feedback de PDI',
+          message: `${operator?.name || 'O colaborador'} adicionou considerações em resposta ao feedback do supervisor.`,
+          type: 'feedback_replied'
+        });
+      } catch {}
+
       setReplyingFeedbackId(null);
       setFeedbackReply('');
       await loadPdis();
@@ -194,13 +235,13 @@ const MyPdi: React.FC<MyPdiProps> = ({ operators }) => {
           <div className="bg-white/5 border border-white/10 p-5 rounded-2xl backdrop-blur-md text-right min-w-[200px]">
             <div className="flex justify-between items-center text-xs font-bold text-slate-400 mb-1">
               <span>Progresso Geral</span>
-              <span className="font-mono text-emerald-400 text-lg font-black">{activePdi.progresso}%</span>
+              <span className="font-mono text-emerald-400 text-lg font-black">{calculatePdiOverallProgress(activePdi)}%</span>
             </div>
             
             <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden mb-2">
               <div 
                 className="h-full bg-gradient-to-r from-blue-500 to-emerald-400 rounded-full transition-all duration-500"
-                style={{ width: `${activePdi.progresso}%` }}
+                style={{ width: `${calculatePdiOverallProgress(activePdi)}%` }}
               />
             </div>
 
