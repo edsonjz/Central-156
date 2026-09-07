@@ -1,5 +1,6 @@
 
 import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Users,
   Clock,
@@ -15,7 +16,7 @@ import { Operator, TeamGoals, OperatorClassification } from '../types';
 import { calculateAverageKPIs, getStatusColor, formatDecimal } from '../utils';
 import { MONTHS } from '../constants';
 
-const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '' }: any) => {
+const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '', onClick }: any) => {
   const statusColor = getStatusColor(value, goal, title === 'TMA Médio' ? 'lower' : 'higher');
   const isSuccess = statusColor === 'text-green-600';
 
@@ -29,7 +30,11 @@ const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '' 
   const theme = colorVariants[color] || colorVariants.blue;
 
   return (
-    <div className="relative overflow-hidden bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 hover:shadow-lg hover:border-slate-300 transition-all duration-300 group">
+    <div
+      onClick={onClick}
+      className={`relative overflow-hidden bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 hover:shadow-lg hover:border-slate-300 transition-all duration-300 group ${onClick ? 'cursor-pointer hover:-translate-y-0.5' : ''}`}
+      title={onClick ? "Clique para visualizar e ordenar na tela de Indicadores" : undefined}
+    >
       {/* Top bar accent */}
       <div className={`absolute top-0 left-0 right-0 h-1 ${isSuccess ? 'bg-emerald-500' : goal ? 'bg-amber-500' : 'bg-blue-500'}`} />
 
@@ -74,6 +79,7 @@ const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '' 
 };
 
 const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ operators, goals }) => {
+  const navigate = useNavigate();
   const currentDate = new Date();
   const [selectedMonth, setSelectedMonth] = useState(String(currentDate.getMonth() + 1));
   const [selectedYear, setSelectedYear] = useState(String(currentDate.getFullYear()));
@@ -230,10 +236,41 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Operadores Computados" value={operatorsWithKPIs} subtitle={`Registros em ${MONTHS[Number(selectedMonth) - 1]}/${selectedYear}`} icon={<Calendar size={24} />} color="blue" />
-        <StatCard title="TMA Médio" value={teamStats.tma} goal={goals.tma} subtitle="Média do período" icon={<Clock size={24} />} color="indigo" />
-        <StatCard title="NPS Geral" value={teamStats.nps} goal={goals.nps} subtitle="Satisfação" icon={<Heart size={24} />} color="rose" />
-        <StatCard title="Monitoria" value={teamStats.monitoria} goal={goals.monitoria} subtitle="Qualidade" icon={<CheckCircle size={24} />} color="emerald" />
+        <StatCard 
+          title="Operadores Computados" 
+          value={operatorsWithKPIs} 
+          subtitle={`Registros em ${MONTHS[Number(selectedMonth) - 1]}/${selectedYear} • Clique p/ ordenar`} 
+          icon={<Calendar size={24} />} 
+          color="blue" 
+          onClick={() => navigate('/indicators?sort=name&dir=asc')}
+        />
+        <StatCard 
+          title="TMA Médio" 
+          value={teamStats.tma} 
+          goal={goals.tma} 
+          subtitle="Média do período • Clique p/ ordenar" 
+          icon={<Clock size={24} />} 
+          color="indigo" 
+          onClick={() => navigate('/indicators?sort=tma&dir=desc')}
+        />
+        <StatCard 
+          title="NPS Geral" 
+          value={teamStats.nps} 
+          goal={goals.nps} 
+          subtitle="Satisfação • Clique p/ ordenar" 
+          icon={<Heart size={24} />} 
+          color="rose" 
+          onClick={() => navigate('/indicators?sort=nps&dir=desc')}
+        />
+        <StatCard 
+          title="Monitoria" 
+          value={teamStats.monitoria} 
+          goal={goals.monitoria} 
+          subtitle="Qualidade • Clique p/ ordenar" 
+          icon={<CheckCircle size={24} />} 
+          color="emerald" 
+          onClick={() => navigate('/indicators?sort=monitoria&dir=desc')}
+        />
       </div>
 
       {/* Charts Section */}
