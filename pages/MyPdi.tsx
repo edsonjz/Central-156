@@ -44,16 +44,25 @@ const MyPdi: React.FC<MyPdiProps> = ({ operators }) => {
 
   // Operador atual
   const operator = useMemo(() => {
-    if (!userProfile) return null;
-    return operators.find(o => o.registration === userProfile.registration) || userProfile;
+    if (userProfile) {
+      const cleanReg = String(userProfile.registration || '').trim();
+      return operators.find(o => String(o.registration).trim() === cleanReg) || userProfile;
+    }
+    if (operators.length === 1) {
+      return operators[0];
+    }
+    return null;
   }, [userProfile, operators]);
 
   // Carregar PDIs do operador
   const loadPdis = useCallback(async () => {
-    if (!operator) return;
+    if (!operator) {
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     try {
-      const { active, history } = await PdiService.getPdisByOperator(supabase, operator.registration);
+      const { active, history } = await PdiService.getPdisByOperator(supabase, String(operator.registration).trim());
       setActivePdi(active);
       setHistoryPdis(history);
     } catch (e) {

@@ -39,14 +39,14 @@ CREATE OR REPLACE FUNCTION public.is_supervisor()
 RETURNS BOOLEAN AS $$
 BEGIN
   -- 1. FAST PATH: Checa metadados do token (JWT)
-  -- Se o usuário for admin do sistema ou tiver role marcada no token, aprova direto.
-  -- Isso evita consultas ao banco em 90% das chamadas se os claims estiverem configurados.
-  IF (auth.jwt() ->> 'email') LIKE '%admin%' OR (auth.jwt() ->> 'role') = 'Supervisor' THEN
+  -- Se o usuário for admin do sistema ou tiver role marcada no token/user_metadata, aprova direto.
+  IF (auth.jwt() ->> 'email') LIKE '%admin%'
+     OR (auth.jwt() ->> 'role') = 'Supervisor'
+     OR (auth.jwt() -> 'user_metadata' ->> 'role') = 'Supervisor' THEN
     RETURN TRUE;
   END IF;
 
   -- 2. DB PATH: Consulta apenas se necessário, usando índice primário.
-  -- SELECT 1 é mais performático que SELECT *.
   RETURN EXISTS (
     SELECT 1 FROM operators
     WHERE user_id = auth.uid()
@@ -54,6 +54,31 @@ BEGIN
   );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 2.1 FUNÇÃO AUXILIAR PARA AUTO-VÍNCULO (SELF-HEALING) POR MATRÍCULA NO JWT
+CREATE OR REPLACE FUNCTION public.is_own_operator_registration(op_reg TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+  jwt_reg TEXT;
+  jwt_email TEXT;
+BEGIN
+  jwt_reg := btrim(COALESCE(auth.jwt() -> 'user_metadata' ->> 'registration', ''));
+  jwt_email := lower(btrim(COALESCE(auth.jwt() ->> 'email', '')));
+
+  IF jwt_reg <> '' AND jwt_reg = btrim(op_reg) THEN
+    RETURN TRUE;
+  END IF;
+
+  IF jwt_email = ('op' || lower(btrim(op_reg)) || '@example.com')
+     OR jwt_email = ('op' || lower(btrim(op_reg)) || '@sistema156.com')
+     OR jwt_email = (lower(btrim(op_reg)) || '@operadores.sistema.local')
+     OR jwt_email = (lower(btrim(op_reg)) || '@example.com') THEN
+    RETURN TRUE;
+  END IF;
+
+  RETURN FALSE;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 
 -- 3. CRIAÇÃO DE ÍNDICES ESSENCIAIS
 -- Garante que as subqueries de RLS sejam instantâneas.
@@ -69,18 +94,23 @@ CREATE INDEX IF NOT EXISTS idx_evaluations_operator ON performance_evaluations(o
 -- ========================================================
 ALTER TABLE operators ENABLE ROW LEVEL SECURITY;
 
--- SELECT: Usuário vê a si mesmo OU Supervisor vê todos.
+DROP POLICY IF EXISTS "operators_select_policy" ON operators;
+DROP POLICY IF EXISTS "operators_update_policy" ON operators;
+DROP POLICY IF EXISTS "operators_insert_policy" ON operators;
+DROP POLICY IF EXISTS "operators_delete_policy" ON operators;
+
+-- SELECT: Usuário vê a si mesmo (por user_id ou matrícula do token) OU Supervisor vê todos.
 CREATE POLICY "operators_select_policy" ON operators
 FOR SELECT TO authenticated
 USING (
-  auth.uid() = user_id OR is_supervisor()
+  auth.uid() = user_id OR is_own_operator_registration(registration) OR is_supervisor()
 );
 
--- UPDATE: Usuário altera a si mesmo (ex: feedbacks) OU Supervisor altera qualquer.
+-- UPDATE: Usuário altera a si mesmo (incluindo self-healing de user_id) OU Supervisor altera qualquer.
 CREATE POLICY "operators_update_policy" ON operators
 FOR UPDATE TO authenticated
 USING (
-  auth.uid() = user_id OR is_supervisor()
+  auth.uid() = user_id OR is_own_operator_registration(registration) OR is_supervisor()
 );
 
 -- INSERT: Permite criação se for o próprio usuário (ex: primeiro login/match) OU Supervisor.

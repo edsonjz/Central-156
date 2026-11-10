@@ -171,12 +171,16 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
           return dateB - dateA;
         })[0];
 
-        const score = (kpi.nps + kpi.monitoria) / 2;
+        const metrics: number[] = [];
+        if (kpi.nps !== null && kpi.nps !== undefined) metrics.push(Number(kpi.nps));
+        if (kpi.monitoria !== null && kpi.monitoria !== undefined) metrics.push(Number(kpi.monitoria));
+        const score = metrics.length > 0 ? metrics.reduce((a, b) => a + b, 0) / metrics.length : 0;
+
         return {
           name: o.name,
           score: score,
           photoUrl: o.photoUrl,
-          tma: kpi.tma,
+          tma: kpi.tma || '-',
           monitoria: kpi.monitoria,
           nps: kpi.nps
         };

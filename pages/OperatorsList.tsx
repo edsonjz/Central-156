@@ -80,11 +80,19 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
     try {
       if (editingOperator) {
         // --- EDIÇÃO DE OPERADOR (OTIMIZADO) ---
-        onSaveOperator({ ...editingOperator, ...formData } as Operator);
+        onSaveOperator({
+          ...editingOperator,
+          ...formData,
+          registration: String(formData.registration).trim(),
+          name: String(formData.name).trim()
+        } as Operator);
         alert('Dados cadastrais atualizados com sucesso!');
       } else {
         // --- CRIAÇÃO DE NOVO OPERADOR ---
-        if (operators.some(o => o.registration === formData.registration)) {
+        const cleanReg = String(formData.registration).trim();
+        const cleanName = String(formData.name).trim();
+
+        if (operators.some(o => String(o.registration).trim() === cleanReg)) {
           alert('Erro: Esta matrícula já está cadastrada no sistema!');
           setIsSubmitting(false);
           return;
@@ -94,52 +102,45 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
 
         // 1. Criar Usuário no Supabase Auth usando o método SEGURO (sem logar)
         if (supabase && newPassword) {
-          const email = generateSystemEmail(formData.registration);
+          const email = generateSystemEmail(cleanReg);
 
           const { data, error } = await createOperatorAccount(
             email,
             newPassword,
             {
-              registration: formData.registration,
+              registration: cleanReg,
               role: 'Operador',
-              name: formData.name
+              name: cleanName
             }
           );
 
-          if (error) {
+          if (error && !String(error.message || '').toLowerCase().includes('already registered')) {
             alert(`Erro ao criar login: ${error.message}`);
             setIsSubmitting(false);
             return;
           }
 
-          if (data.user) {
+          if (data?.user) {
             userId = data.user.id;
           }
         }
 
-        // 2. Salvar Dados na Tabela Operators
-        const newOp = {
-          ...formData,
+        // 2. Salvar Dados na Tabela Operators (usando onSaveOperator com upsert seguro)
+        const newOp: Operator = {
+          ...(formData as Operator),
+          registration: cleanReg,
+          name: cleanName,
           user_id: userId || undefined,
           kpis: [],
           feedbacks: [],
           documents: [],
-          photoUrl: undefined
-        } as Operator;
+          photoUrl: undefined,
+          active: formData.active ?? true
+        };
 
-        // Atualiza estado local
-        onUpdate(prev => [...prev, newOp]);
+        await onSaveOperator(newOp);
 
-        // Salva no Banco
-        if (supabase) {
-          const { error: dbError } = await supabase.from('operators').insert(newOp);
-          if (dbError) {
-            console.error("Erro BD:", dbError);
-            alert("Erro ao salvar perfil. O login foi criado, mas o registro no banco falhou.");
-          }
-        }
-
-        alert(`Cadastro Realizado!\n\nVocê continua logado como Supervisor.\n\nEntregue estas credenciais ao colaborador:\nLOGIN: ${formData.registration}\nSENHA: ${newPassword}`);
+        alert(`Cadastro Realizado!\n\nVocê continua logado como Supervisor.\n\nEntregue estas credenciais ao colaborador:\nLOGIN: ${cleanReg}\nSENHA: ${newPassword}`);
       }
       setModalOpen(false);
     } catch (err) {

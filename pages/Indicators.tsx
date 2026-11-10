@@ -192,43 +192,55 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
     return calculateAverageKPIs(allKpis);
   }, [activeOps, selectedMonth, selectedYear]);
 
-  // Prepara dados de ranking considerando apenas o mês selecionado
-  const rankingData = useMemo(() => {
+  // Prepara os dados de todos os operadores ativos para a tabela e para os rankings do mês selecionado
+  const tableOperatorsData = useMemo(() => {
     const targetKey = `${selectedYear}-${selectedMonth.padStart(2, '0')}`;
 
     return activeOps.map(op => {
-      // Filtra KPI específico do mês
-      const monthKpis = op.kpis.filter(k => k.month === targetKey);
+      const monthKpis = (op.kpis || []).filter(k => k.month === targetKey);
+      const latestKpi = monthKpis.length > 0
+        ? [...monthKpis].sort((a, b) => {
+            const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return dateB - dateA;
+          })[0]
+        : null;
 
-      // Se não tem KPI no mês, retorna null para ser filtrado depois (não entra no ranking)
-      if (monthKpis.length === 0) return null;
+      const hasTma = !!(latestKpi?.tma && latestKpi.tma !== '00:00:00');
+      const hasNps = latestKpi?.nps !== null && latestKpi?.nps !== undefined;
+      const hasMonitoria = latestKpi?.monitoria !== null && latestKpi?.monitoria !== undefined;
 
-      // Pega apenas o MAIS RECENTE
-      const latestKpi = [...monthKpis].sort((a, b) => {
-        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return dateB - dateA;
-      })[0];
-
-      const stats = calculateAverageKPIs([latestKpi]);
       return {
         ...op,
+        hasDataInMonth: !!latestKpi,
         shortName: op.name.split(' ')[0],
-        avgNps: stats.nps,
-        avgMonitoria: stats.monitoria,
-        avgTma: stats.tma,
-        avgTmaSeconds: tmaToSeconds(stats.tma)
+        avgNps: hasNps ? Number(latestKpi!.nps) : null,
+        avgMonitoria: hasMonitoria ? Number(latestKpi!.monitoria) : null,
+        avgTma: hasTma ? latestKpi!.tma! : null,
+        avgTmaSeconds: hasTma ? tmaToSeconds(latestKpi!.tma) : null
       };
-    }).filter(Boolean) as any[]; // Remove operadores sem dados no mês
+    });
   }, [activeOps, selectedMonth, selectedYear]);
 
-  // Função auxiliar para ordenar e cortar os dados dos gráficos
+  // Operadores que possuem lançamento no mês selecionado
+  const rankingData = useMemo(() => {
+    return tableOperatorsData.filter(op => op.hasDataInMonth);
+  }, [tableOperatorsData]);
+
+  // Função auxiliar para ordenar e cortar os dados dos gráficos (filtrando apenas quem possui o indicador avaliado no mês)
   const getSortedData = (metric: 'avgMonitoria' | 'avgNps' | 'avgTmaSeconds', mode: 'best' | 'worst') => {
-    const sorted = [...rankingData].sort((a, b) => {
+    const validForMetric = rankingData.filter(op => {
+      const val = op[metric];
+      if (val === null || val === undefined) return false;
+      if (metric === 'avgTmaSeconds' && val <= 0) return false;
+      return true;
+    });
+
+    const sorted = [...validForMetric].sort((a, b) => {
       if (metric === 'avgTmaSeconds') {
-        return mode === 'best' ? a.avgTmaSeconds - b.avgTmaSeconds : b.avgTmaSeconds - a.avgTmaSeconds;
+        return mode === 'best' ? (a.avgTmaSeconds || 0) - (b.avgTmaSeconds || 0) : (b.avgTmaSeconds || 0) - (a.avgTmaSeconds || 0);
       } else {
-        return mode === 'best' ? b[metric] - a[metric] : a[metric] - b[metric];
+        return mode === 'best' ? (b[metric] || 0) - (a[metric] || 0) : (a[metric] || 0) - (b[metric] || 0);
       }
     });
     return sorted.slice(0, 10);
@@ -239,16 +251,16 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
   const dataTMA = useMemo(() => getSortedData('avgTmaSeconds', filterTMA), [rankingData, filterTMA]);
 
   const handleExportReport = () => {
-    if (rankingData.length === 0) return;
+    if (tableOperatorsData.length === 0) return;
 
-    const dataToExport = rankingData.map(op => ({
+    const dataToExport = tableOperatorsData.map(op => ({
       'Matrícula': op.registration,
       'Nome': op.name,
       'Atribuição': op.classification || '-',
       'Mês': `${MONTHS[Number(selectedMonth) - 1]}/${selectedYear}`,
-      'TMA': op.avgTma,
-      'NPS': op.avgNps,
-      'Qualidade (%)': op.avgMonitoria,
+      'TMA': op.avgTma || '-',
+      'NPS': op.avgNps !== null ? op.avgNps : '-',
+      'Qualidade (%)': op.avgMonitoria !== null ? op.avgMonitoria : '-',
       'Status': op.active !== false ? 'Ativo' : 'Inativo'
     }));
 
@@ -256,29 +268,35 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
   };
 
   const sortedAndFilteredList = useMemo(() => {
-    const list = rankingData.filter(op =>
+    const list = tableOperatorsData.filter(op =>
       op.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       op.registration.includes(searchTerm)
     );
 
-    if (!sortColumn) return list;
+    if (!sortColumn) {
+      return [...list].sort((a, b) => {
+        if (a.hasDataInMonth !== b.hasDataInMonth) return a.hasDataInMonth ? -1 : 1;
+        return a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
+      });
+    }
 
     return [...list].sort((a, b) => {
-      let comparison = 0;
-
       if (sortColumn === 'name') {
-        comparison = a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
-      } else if (sortColumn === 'tma') {
-        comparison = (a.avgTmaSeconds || 0) - (b.avgTmaSeconds || 0);
-      } else if (sortColumn === 'nps') {
-        comparison = (Number(a.avgNps) || 0) - (Number(b.avgNps) || 0);
-      } else if (sortColumn === 'monitoria') {
-        comparison = (Number(a.avgMonitoria) || 0) - (Number(b.avgMonitoria) || 0);
+        const cmp = a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
+        return sortDirection === 'desc' ? -cmp : cmp;
       }
 
+      const valA = sortColumn === 'tma' ? a.avgTmaSeconds : sortColumn === 'nps' ? a.avgNps : a.avgMonitoria;
+      const valB = sortColumn === 'tma' ? b.avgTmaSeconds : sortColumn === 'nps' ? b.avgNps : b.avgMonitoria;
+
+      if (valA === null && valB === null) return a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
+      if (valA === null) return 1;
+      if (valB === null) return -1;
+
+      const comparison = Number(valA) - Number(valB);
       return sortDirection === 'desc' ? -comparison : comparison;
     });
-  }, [rankingData, searchTerm, sortColumn, sortDirection]);
+  }, [tableOperatorsData, searchTerm, sortColumn, sortDirection]);
 
   const years = Array.from({ length: 5 }, (_, i) => String(new Date().getFullYear() - i));
 
@@ -650,24 +668,24 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, goals, userRole }) =
                       </td>
                       <td className="px-4 py-4 text-center">
                         <span className={`text-sm font-black font-mono px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-100 ${getStatusColor(op.avgTma, goals.tma, 'lower')}`}>
-                          {op.avgTma}
+                          {op.avgTma || '-'}
                         </span>
                       </td>
                       <td className="px-4 py-4 text-center">
                         <span className={`text-sm font-black px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-100 ${getStatusColor(op.avgNps, goals.nps)}`}>
-                          {formatDecimal(op.avgNps)}
+                          {op.avgNps !== null ? formatDecimal(op.avgNps) : '-'}
                         </span>
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex flex-col items-center gap-1.5">
                           <div className="w-28 bg-slate-100 h-2 rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full transition-all duration-500 ${op.avgMonitoria >= goals.monitoria ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' : 'bg-gradient-to-r from-amber-400 to-amber-500'}`}
-                              style={{ width: `${Math.min(100, Math.max(0, op.avgMonitoria))}%` }}
+                              className={`h-full rounded-full transition-all duration-500 ${op.avgMonitoria !== null && op.avgMonitoria >= goals.monitoria ? 'bg-gradient-to-r from-emerald-400 to-emerald-500' : 'bg-gradient-to-r from-amber-400 to-amber-500'}`}
+                              style={{ width: `${op.avgMonitoria !== null ? Math.min(100, Math.max(0, op.avgMonitoria)) : 0}%` }}
                             />
                           </div>
                           <span className={`text-xs font-black ${getStatusColor(op.avgMonitoria, goals.monitoria)}`}>
-                            {formatDecimal(op.avgMonitoria)}%
+                            {op.avgMonitoria !== null ? `${formatDecimal(op.avgMonitoria)}%` : '-'}
                           </span>
                         </div>
                       </td>

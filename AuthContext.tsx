@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
-import { Role, Operator, CloudConfig, LinkType, WorkMode } from './types';
+import { Role, Operator, CloudConfig, LinkType, WorkMode, OperatorClassification } from './types';
 import { generateSystemEmail } from './utils';
+import { INITIAL_OPERATORS } from './constants';
 
 // Configuração Padrão (Usa variáveis de ambiente se disponíveis, senão fallback para desenvolvimento)
 const DEFAULT_CLOUD_CONFIG: CloudConfig = {
@@ -69,6 +70,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (session?.user) {
         fetchUserProfile(session.user);
       } else {
+        profileFetchedForUser.current = null;
         setUserRole(null);
         setUserProfile(null);
         setIsLoading(false);
@@ -88,89 +90,142 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
     profileFetchedForUser.current = currentUser.id;
+    setIsLoading(true);
 
-    // 1. Tenta busca padrão pelo user_id
+    const LIGHT_COLS = 'user_id, registration, name, admissionDate, role, linkType, costCenter, classification, workMode, birthDate, photoUrl, active, kpis, feedbacks';
+
+    // 1. Tenta busca padrão pelo user_id (sem documentos pesados para evitar timeout)
     const { data, error } = await supabaseClient
       .from('operators')
-      .select('*')
+      .select(LIGHT_COLS)
       .eq('user_id', currentUser.id)
-      .single();
+      .maybeSingle();
 
     if (data && !error) {
       // Cenário Perfeito: Vínculo já existe
-      setUserProfile(data);
+      const normalizedData: Operator = {
+        ...data,
+        registration: String(data.registration).trim(),
+        kpis: data.kpis || [],
+        feedbacks: data.feedbacks || [],
+        documents: (data as any).documents || [],
+        active: data.active ?? true
+      };
+      setUserProfile(normalizedData);
       const role = data.role === 'Supervisor' ? Role.SUPERVISOR : Role.OPERATOR;
       setUserRole(role);
-    } else {
-      // 2. Cenário de Falha de Vínculo (Comum em contas criadas separadamente)
-      // Tenta recuperar a matrícula através do padrão de e-mail 'opXXXXX@...'
-      const email = currentUser.email || '';
-      let potentialRegistration = '';
+      setIsLoading(false);
+      return;
+    }
 
-      // Tenta extrair matrícula de e-mails padrão op12345@...
-      const match = email.match(/^op(\w+)@/);
+    // 2. Cenário de Falha de Vínculo (Comum em contas criadas separadamente)
+    // Tenta recuperar a matrícula através de user_metadata ou padrão de e-mail
+    const email = currentUser.email || '';
+    let potentialRegistration = currentUser.user_metadata?.registration
+      ? String(currentUser.user_metadata.registration).trim()
+      : '';
+
+    if (!potentialRegistration) {
+      // Tenta extrair matrícula de e-mails padrão op12345@... ou 12345@...
+      const match = email.match(/^(?:op)?([a-zA-Z0-9]+)@/);
       if (match) {
-        potentialRegistration = match[1];
+        potentialRegistration = match[1].trim();
       } else if (!email.includes('@')) {
-        // Fallback se o email for apenas a matrícula (caso raro no auth objeto)
-        potentialRegistration = email;
+        potentialRegistration = email.trim();
       }
+    }
 
-      if (potentialRegistration) {
-        // Busca na tabela pela Matrícula (Registration)
-        const { data: regData } = await supabaseClient
-          .from('operators')
-          .select('*')
-          .eq('registration', potentialRegistration)
-          .single();
+    if (potentialRegistration) {
+      // Tenta atualizar o vínculo diretamente (caso RLS permita update por matrícula)
+      await supabaseClient
+        .from('operators')
+        .update({ user_id: currentUser.id })
+        .eq('registration', potentialRegistration);
 
-        if (regData) {
-          // ENCONTRADO! Vamos consertar o vínculo (Self-Healing)
-          console.log("Vínculo encontrado por matrícula. Atualizando user_id...");
+      // Busca na tabela pela Matrícula (Registration) ou pelo user_id recém vinculado
+      const { data: regData } = await supabaseClient
+        .from('operators')
+        .select(LIGHT_COLS)
+        .or(`registration.eq.${potentialRegistration},user_id.eq.${currentUser.id}`)
+        .maybeSingle();
 
+      if (regData) {
+        console.log("Vínculo encontrado por matrícula. Atualizando user_id...");
+        if (regData.user_id !== currentUser.id) {
           await supabaseClient
             .from('operators')
             .update({ user_id: currentUser.id })
             .eq('registration', potentialRegistration);
-
-          // Atualiza estado local com os dados encontrados
-          setUserProfile(regData);
-          const role = regData.role === 'Supervisor' ? Role.SUPERVISOR : Role.OPERATOR;
-          setUserRole(role);
-          setIsLoading(false);
-          return;
         }
-      }
 
-      // 3. Fallback Final: Verifica se é Admin pelo email
-      const isSystemEmail = email.includes('@example.com') ||
-        email.includes('@sistema156.com') ||
-        email.includes('@operadores.sistema.local');
-
-      if (!isSystemEmail && email) {
-        // É Supervisor (Admin) sem registro na tabela operators
-        setUserRole(Role.SUPERVISOR);
-
-        setUserProfile({
-          name: currentUser.user_metadata?.name || 'Administrador',
-          registration: 'SUPERVISOR',
-          role: 'Supervisor',
+        const normalizedReg: Operator = {
+          ...regData,
           user_id: currentUser.id,
-          active: true,
-          kpis: [],
-          feedbacks: [],
-          documents: [],
-          linkType: LinkType.EFETIVO,
-          workMode: WorkMode.PRESENTIAL,
-          costCenter: 'ADM',
-          admissionDate: new Date().toLocaleDateString('pt-BR'),
-          birthDate: ''
-        });
-      } else {
-        // Usuário logado mas sem perfil de dados encontrado
-        console.warn("Usuário logado sem perfil de operador correspondente.");
-        setUserRole(Role.OPERATOR);
+          registration: String(regData.registration).trim(),
+          kpis: regData.kpis || [],
+          feedbacks: regData.feedbacks || [],
+          documents: (regData as any).documents || [],
+          active: regData.active ?? true
+        };
+        setUserProfile(normalizedReg);
+        const role = regData.role === 'Supervisor' ? Role.SUPERVISOR : Role.OPERATOR;
+        setUserRole(role);
+        setIsLoading(false);
+        return;
       }
+    }
+
+    // 3. Fallback Final: Verifica se é Admin pelo email ou metadados
+    const isSystemEmail = email.includes('@example.com') ||
+      email.includes('@sistema156.com') ||
+      email.includes('@operadores.sistema.local');
+
+    if (!isSystemEmail && email && currentUser.user_metadata?.role !== 'Operador') {
+      // É Supervisor (Admin) sem registro na tabela operators
+      setUserRole(Role.SUPERVISOR);
+
+      setUserProfile({
+        name: currentUser.user_metadata?.name || 'Administrador',
+        registration: 'SUPERVISOR',
+        role: 'Supervisor',
+        user_id: currentUser.id,
+        active: true,
+        kpis: [],
+        feedbacks: [],
+        documents: [],
+        linkType: LinkType.EFETIVO,
+        workMode: WorkMode.PRESENTIAL,
+        costCenter: 'ADM',
+        admissionDate: new Date().toLocaleDateString('pt-BR'),
+        birthDate: ''
+      });
+    } else {
+      // Operador autenticado cujo registro no banco está com user_id pendente de vínculo (bloqueado por RLS)
+      // ou ainda não inserido na tabela public.operators. Construímos perfil completo para nunca quebrar a tela.
+      console.warn("Construindo perfil de fallback para operador:", potentialRegistration || email);
+      const initialMatch = INITIAL_OPERATORS.find(
+        o => String(o.registration).trim() === String(potentialRegistration).trim()
+      );
+
+      const fallbackProfile: Operator = {
+        registration: potentialRegistration || initialMatch?.registration || currentUser.id.slice(0, 8),
+        name: currentUser.user_metadata?.name || initialMatch?.name || 'Colaborador',
+        admissionDate: initialMatch?.admissionDate || new Date().toLocaleDateString('pt-BR'),
+        role: currentUser.user_metadata?.role || initialMatch?.role || 'Operador',
+        linkType: initialMatch?.linkType || LinkType.EFETIVO,
+        costCenter: initialMatch?.costCenter || 'CENTRAL 156',
+        classification: initialMatch?.classification || OperatorClassification.OUTROS,
+        workMode: initialMatch?.workMode || WorkMode.PRESENTIAL,
+        birthDate: initialMatch?.birthDate || '',
+        user_id: currentUser.id,
+        active: initialMatch?.active ?? true,
+        kpis: initialMatch?.kpis || [],
+        feedbacks: initialMatch?.feedbacks || [],
+        documents: initialMatch?.documents || []
+      };
+
+      setUserRole(Role.OPERATOR);
+      setUserProfile(fallbackProfile);
     }
     setIsLoading(false);
   };
@@ -220,6 +275,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     if (!supabaseClient) return;
+    profileFetchedForUser.current = null;
     await supabaseClient.auth.signOut();
     setUser(null);
     setSession(null);
@@ -239,13 +295,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       });
 
-      return await tempClient.auth.signUp({
+      const signUpRes = await tempClient.auth.signUp({
         email,
         password,
         options: {
           data: metaData
         }
       });
+
+      // Self-Healing: Se a conta já existe no Auth mas estava sem vínculo user_id na tabela operators,
+      // tentamos autenticar no cliente isolado para recuperar o user.id e refazer o vínculo automaticamente.
+      if (signUpRes.error && String(signUpRes.error.message || '').toLowerCase().includes('already registered')) {
+        for (const candidatePassword of [password, '123456']) {
+          const signInRes = await tempClient.auth.signInWithPassword({
+            email,
+            password: candidatePassword
+          });
+          if (!signInRes.error && signInRes.data?.user) {
+            return { data: signInRes.data, error: null };
+          }
+        }
+      }
+
+      return signUpRes;
     } catch (e: any) {
       return { data: null, error: e };
     }

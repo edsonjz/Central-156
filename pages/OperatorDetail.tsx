@@ -39,9 +39,10 @@ interface OperatorDetailProps {
   onSaveOperator: (op: Operator) => void;
   userRole: Role;
   goals: TeamGoals;
+  isDataLoading?: boolean;
 }
 
-const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, onSaveOperator, userRole, goals }) => {
+const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, onSaveOperator, userRole, goals, isDataLoading }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { supabase, userProfile, user, createOperatorAccount } = useAuth();
@@ -72,15 +73,18 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
 
   // Estado para rascunho de respostas de feedback (Key: FeedbackID, Value: Text)
   const [replyDrafts, setReplyDrafts] = useState<{ [key: string]: string }>({});
+  const [documentsLoadedForReg, setDocumentsLoadedForReg] = useState<string | null>(null);
 
-  // Lógica de Seleção do Operador (Robustez Aprimorada):
+  // Lógica de Seleção do Operador (Robustez Aprimorada com trim e fallback userProfile):
   let operator: Operator | undefined = undefined;
+  const cleanId = id ? String(id).trim() : '';
 
-  if (id) {
-    operator = operators.find(o => o.registration === id);
+  if (cleanId) {
+    operator = operators.find(o => String(o.registration).trim() === cleanId);
   } else {
     if (userProfile?.registration) {
-      operator = operators.find(o => o.registration === userProfile.registration);
+      const cleanProfileReg = String(userProfile.registration).trim();
+      operator = operators.find(o => String(o.registration).trim() === cleanProfileReg);
     }
     if (!operator && user?.id) {
       operator = operators.find(o => o.user_id === user.id);
@@ -88,6 +92,63 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
     if (!operator && userRole === Role.OPERATOR && operators.length === 1) {
       operator = operators[0];
     }
+    if (!operator && userProfile && userProfile.registration !== 'SUPERVISOR') {
+      operator = userProfile;
+    }
+  }
+
+  const targetRegistration = operator?.registration ? String(operator.registration).trim() : cleanId;
+
+  // Carrega documentos sob demanda (lazy load) quando o perfil do operador é aberto
+  React.useEffect(() => {
+    if (!supabase || !targetRegistration || documentsLoadedForReg === targetRegistration) return;
+    setDocumentsLoadedForReg(targetRegistration);
+
+    supabase
+      .from('operators')
+      .select('registration, documents, kpis, feedbacks, photoUrl, user_id')
+      .eq('registration', targetRegistration)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          onUpdate(prev => {
+            const exists = prev.some(o => String(o.registration).trim() === targetRegistration);
+            if (!exists) return prev;
+            return prev.map(o => {
+              if (String(o.registration).trim() !== targetRegistration) return o;
+              return {
+                ...o,
+                user_id: data.user_id || o.user_id,
+                photoUrl: data.photoUrl || o.photoUrl,
+                kpis: Array.isArray(data.kpis) && data.kpis.length > 0 ? data.kpis : (o.kpis || []),
+                feedbacks: Array.isArray(data.feedbacks) && data.feedbacks.length > 0 ? data.feedbacks : (o.feedbacks || []),
+                documents: Array.isArray(data.documents) ? data.documents : (o.documents || [])
+              };
+            });
+          });
+        }
+      });
+  }, [supabase, targetRegistration, documentsLoadedForReg]);
+
+  // Efeito para marcar feedbacks como lidos quando o supervisor visualiza a aba
+  React.useEffect(() => {
+    if (operator && activeTab === 'feedback' && userRole === Role.SUPERVISOR && operator.feedbacks?.some(f => f.operatorResponse && f.isRead === false)) {
+      const updatedFeedbacks = operator.feedbacks.map(f =>
+        (f.operatorResponse && f.isRead === false) ? { ...f, isRead: true } : f
+      );
+
+      // OTIMIZADO: Salva apenas este operador
+      onSaveOperator({ ...operator, feedbacks: updatedFeedbacks });
+    }
+  }, [activeTab, userRole, operator?.feedbacks, targetRegistration]);
+
+  if (isDataLoading && !operator) {
+    return (
+      <div className="p-20 flex flex-col items-center justify-center space-y-4">
+        <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+        <p className="text-sm font-semibold text-slate-500">Carregando informações do colaborador...</p>
+      </div>
+    );
   }
 
   if (!operator) {
@@ -107,21 +168,7 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
     );
   }
 
-  const targetRegistration = operator.registration;
-  const stats = calculateAverageKPIs(getLatestKPIsPerMonth(operator.kpis));
-
-  // Efeito para marcar feedbacks como lidos quando o supervisor visualiza a aba
-  React.useEffect(() => {
-    if (activeTab === 'feedback' && userRole === Role.SUPERVISOR && operator.feedbacks.some(f => f.operatorResponse && f.isRead === false)) {
-      const updatedFeedbacks = operator.feedbacks.map(f =>
-        (f.operatorResponse && f.isRead === false) ? { ...f, isRead: true } : f
-      );
-
-      // OTIMIZADO: Salva apenas este operador
-      onSaveOperator({ ...operator, feedbacks: updatedFeedbacks });
-
-    }
-  }, [activeTab, userRole, operator.feedbacks, targetRegistration, onUpdate]);
+  const stats = calculateAverageKPIs(getLatestKPIsPerMonth(operator.kpis || []));
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

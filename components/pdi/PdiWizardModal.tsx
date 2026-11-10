@@ -133,8 +133,15 @@ export const PdiWizardModal: React.FC<PdiWizardModalProps> = ({
 
   if (!isOpen) return null;
 
-  const selectedOperator = operators.find(op => op.registration === operatorReg) || null;
-  const latestKpi = selectedOperator?.kpis?.[0];
+  const selectedOperator = operators.find(op => String(op.registration).trim() === String(operatorReg).trim()) || null;
+  const latestKpi = selectedOperator?.kpis && selectedOperator.kpis.length > 0
+    ? [...selectedOperator.kpis].sort((a, b) => {
+        if (a.month !== b.month) return b.month.localeCompare(a.month);
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return dateB - dateA;
+      })[0]
+    : undefined;
 
   // Alternar dimensão de foco (multi-seleção)
   const toggleDimensao = (dim: string) => {

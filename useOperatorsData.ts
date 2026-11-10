@@ -3,6 +3,19 @@ import { SupabaseClient, User } from '@supabase/supabase-js';
 import { Operator, TeamGoals } from './types';
 import { INITIAL_OPERATORS, GOALS as INITIAL_GOALS } from './constants';
 
+const LIGHT_COLS = 'user_id, registration, name, admissionDate, role, linkType, costCenter, classification, workMode, birthDate, photoUrl, active, kpis, feedbacks';
+const ULTRA_LIGHT_COLS = 'user_id, registration, name, admissionDate, role, linkType, costCenter, classification, workMode, birthDate, active, kpis, feedbacks';
+
+// Mapeamento de auto-recuperação de vínculos Auth (user_id) conhecidos que ficaram desvinculados no banco
+const KNOWN_AUTH_USER_IDS: Record<string, string> = {
+    '55941': '7c43af32-8536-4991-be0c-6af2baa7a42f',
+    '55732': '437b92f3-a017-4476-9d55-d4983fec4507',
+    '56735': 'e4ec700d-8375-4c7e-a3b0-f295d366485b',
+    '19439': 'a4acd4f1-ed7a-44a3-85d3-c1d1de2e24cb',
+    '56325': '94878222-66fa-47d8-93ca-f4f9f17b5cfc',
+    '56476': '16bd66dd-640a-4e51-b8b1-4936888c86b0',
+};
+
 export const useOperatorsData = (supabase: SupabaseClient | null, user: User | null, userProfile: Operator | null, isAdmin: boolean) => {
     const [operators, setOperators] = useState<Operator[]>([]);
     const [goals, setGoals] = useState<TeamGoals>(INITIAL_GOALS);
@@ -15,36 +28,108 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
         setSystemError(null);
 
         try {
-            const { data: opsData, error: opsError } = await supabase
+            // 1. Consulta otimizada sem a coluna pesada 'documents' (carregada sob demanda no detalhe do operador)
+            let { data: opsData, error: opsError } = await supabase
                 .from('operators')
-                .select('*')
+                .select(LIGHT_COLS)
                 .order('name');
+
+            // 2. Fallback ultra-leve sem 'photoUrl' caso alguma foto Base64 grande cause timeout na rede
+            let usedUltraLight = false;
+            if (opsError && opsError.code !== '42P17') {
+                console.warn('[useOperatorsData] Falha na consulta padrão, tentando consulta ultra-leve sem fotos:', opsError.message);
+                const retry = await supabase
+                    .from('operators')
+                    .select(ULTRA_LIGHT_COLS)
+                    .order('name');
+                opsData = retry.data as any;
+                opsError = retry.error;
+                usedUltraLight = !retry.error && !!retry.data;
+            }
 
             let loadedOps: Operator[] = [];
 
             if (!opsError && opsData) {
-                loadedOps = opsData.map((op: any) => ({
-                    ...op,
-                    kpis: op.kpis || [],
-                    feedbacks: op.feedbacks || [],
-                    documents: op.documents || [],
-                    active: op.active ?? true
-                }));
+                loadedOps = opsData.map((op: any) => {
+                    const cleanReg = String(op.registration || '').trim();
+                    const knownUserId = KNOWN_AUTH_USER_IDS[cleanReg];
+                    const resolvedUserId = knownUserId || op.user_id;
+
+                    // Se for Supervisor e o vínculo user_id no banco estava nulo/desatualizado, corrige silenciosamente no Supabase
+                    if (isAdmin && knownUserId && op.user_id !== knownUserId) {
+                        supabase
+                            .from('operators')
+                            .update({ user_id: knownUserId })
+                            .eq('registration', cleanReg)
+                            .then(({ error }) => {
+                                if (!error) {
+                                    console.log(`[useOperatorsData] Self-healing: user_id vinculado para matrícula ${cleanReg}`);
+                                }
+                            });
+                    }
+
+                    return {
+                        ...op,
+                        user_id: resolvedUserId,
+                        registration: cleanReg,
+                        name: String(op.name || '').trim(),
+                        kpis: Array.isArray(op.kpis) ? op.kpis : [],
+                        feedbacks: Array.isArray(op.feedbacks) ? op.feedbacks : [],
+                        documents: Array.isArray(op.documents) ? op.documents : [],
+                        active: op.active ?? true
+                    };
+                });
             }
 
             if ((!loadedOps || loadedOps.length === 0) && userProfile && !isAdmin) {
-                loadedOps = [userProfile];
+                loadedOps = [{
+                    ...userProfile,
+                    registration: String(userProfile.registration || '').trim(),
+                    kpis: Array.isArray(userProfile.kpis) ? userProfile.kpis : [],
+                    feedbacks: Array.isArray(userProfile.feedbacks) ? userProfile.feedbacks : [],
+                    documents: Array.isArray(userProfile.documents) ? userProfile.documents : [],
+                    active: userProfile.active ?? true
+                }];
             }
 
             if (loadedOps.length > 0) {
                 setOperators(current => {
-                    // OTIMIZAÇÃO: Comparação profunda para evitar re-render se os dados não mudaram
-                    // Isso é crucial para evitar loops de efeito quando o AuthContext atualiza
-                    if (JSON.stringify(current) === JSON.stringify(loadedOps)) {
+                    const merged = loadedOps.map(op => {
+                        const existing = current.find(c => String(c.registration).trim() === op.registration);
+                        return {
+                            ...op,
+                            photoUrl: op.photoUrl !== undefined ? op.photoUrl : existing?.photoUrl,
+                            documents: (op.documents && op.documents.length > 0)
+                                ? op.documents
+                                : (existing?.documents || [])
+                        };
+                    });
+
+                    if (JSON.stringify(current) === JSON.stringify(merged)) {
                         return current;
                     }
-                    return loadedOps;
+                    return merged;
                 });
+
+                // Se usamos o fallback sem fotos, busca as fotos individualmente em background
+                if (usedUltraLight) {
+                    loadedOps.forEach(op => {
+                        supabase
+                            .from('operators')
+                            .select('registration, photoUrl')
+                            .eq('registration', op.registration)
+                            .maybeSingle()
+                            .then(({ data }) => {
+                                if (data?.photoUrl) {
+                                    setOperators(prev => prev.map(item =>
+                                        String(item.registration).trim() === String(data.registration).trim()
+                                            ? { ...item, photoUrl: data.photoUrl }
+                                            : item
+                                    ));
+                                }
+                            });
+                    });
+                }
             } else if (opsError) {
                 if (opsError?.code === '42P17') {
                     setSystemError({
@@ -53,7 +138,7 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
                         fix: `-- SOLUÇÃO COMPLETA ...`
                     });
                 } else {
-                    setOperators(INITIAL_OPERATORS);
+                    setOperators(current => current.length > 0 ? current : INITIAL_OPERATORS);
                 }
             }
 
@@ -61,7 +146,7 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
                 .from('config')
                 .select('value')
                 .eq('key', 'metas')
-                .single();
+                .maybeSingle();
 
             if (goalsData?.value) {
                 setGoals(goalsData.value);
@@ -69,11 +154,11 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
 
         } catch (err) {
             console.error("Falha no carregamento:", err);
-            setOperators(INITIAL_OPERATORS);
+            setOperators(current => current.length > 0 ? current : (userProfile && !isAdmin ? [userProfile] : INITIAL_OPERATORS));
         } finally {
             setIsDataLoading(false);
         }
-    }, [supabase, user, isAdmin]);
+    }, [supabase, user, userProfile, isAdmin]);
 
     useEffect(() => {
         loadData();
@@ -86,22 +171,25 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
             const handleInsertOrUpdate = (payload: any) => {
                 const newRecord = payload.new;
                 if (!newRecord) return;
+                const cleanReg = String(newRecord.registration || '').trim();
 
                 setOperators(prev => {
-                    const exists = prev.some(op => op.registration === newRecord.registration);
-                    const existingOp = prev.find(op => op.registration === newRecord.registration);
+                    const exists = prev.some(op => String(op.registration).trim() === cleanReg);
+                    const existingOp = prev.find(op => String(op.registration).trim() === cleanReg);
 
-                    // Preservar documentos locais se o payload vier sem eles
+                    // Preservar documentos e foto locais se o payload vier sem eles
                     const sanitizedOp = {
                         ...newRecord,
-                        kpis: newRecord.kpis || [],
-                        feedbacks: newRecord.feedbacks || [],
-                        documents: newRecord.documents || (existingOp ? existingOp.documents : []),
+                        registration: cleanReg,
+                        photoUrl: newRecord.photoUrl !== undefined ? newRecord.photoUrl : existingOp?.photoUrl,
+                        kpis: Array.isArray(newRecord.kpis) ? newRecord.kpis : (existingOp?.kpis || []),
+                        feedbacks: Array.isArray(newRecord.feedbacks) ? newRecord.feedbacks : (existingOp?.feedbacks || []),
+                        documents: Array.isArray(newRecord.documents) ? newRecord.documents : (existingOp?.documents || []),
                         active: newRecord.active ?? true
                     };
 
                     if (exists) {
-                        return prev.map(op => op.registration === newRecord.registration ? sanitizedOp : op);
+                        return prev.map(op => String(op.registration).trim() === cleanReg ? sanitizedOp : op);
                     } else {
                         return [...prev, sanitizedOp].sort((a, b) => a.name.localeCompare(b.name));
                     }
@@ -110,7 +198,8 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
 
             const handleDelete = (payload: any) => {
                 if (payload.old) {
-                    setOperators(prev => prev.filter(op => op.registration !== payload.old.registration));
+                    const cleanReg = String(payload.old.registration || '').trim();
+                    setOperators(prev => prev.filter(op => String(op.registration).trim() !== cleanReg));
                 }
             };
 

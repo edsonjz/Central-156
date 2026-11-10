@@ -70,10 +70,10 @@ const AppContent: React.FC = () => {
     handleUpdateGoals
   } = useOperatorsData(supabase, user, userProfile, isAdmin);
 
-  // Função para atualizar operadores (Enviando para Supabase)
+  // Função para atualizar operadores (Enviando para Supabase apenas registros novos/alterados)
   const handleUpdateOperators = useCallback(async (newOpsOrFn: Operator[] | ((prev: Operator[]) => Operator[])) => {
     let updatedOps: Operator[];
-    let oldOps = operators;
+    const oldOps = operators;
 
     if (typeof newOpsOrFn === 'function') {
       updatedOps = newOpsOrFn(operators);
@@ -83,89 +83,154 @@ const AppContent: React.FC = () => {
 
     setOperators(updatedOps);
 
-    if (supabase && updatedOps.length > 0) {
+    // Se foi apenas remoção de operador, a exclusão no banco já é feita diretamente pelo chamador
+    if (updatedOps.length < oldOps.length) {
+      return;
+    }
+
+    // Identifica apenas os operadores que foram adicionados ou modificados
+    const changedOps = updatedOps.filter(newOp => {
+      const oldOp = oldOps.find(o => String(o.registration).trim() === String(newOp.registration).trim());
+      return !oldOp || JSON.stringify(oldOp) !== JSON.stringify(newOp);
+    });
+
+    if (supabase && changedOps.length > 0) {
       try {
         if (isAdmin) {
-          const { error } = await supabase.from('operators').upsert(updatedOps, { onConflict: 'registration' });
-          if (error) throw error;
-        } else {
-          const myRecord = updatedOps.find(op => op.user_id === user?.id);
-          if (myRecord && user?.id) {
+          for (const op of changedOps) {
+            const oldOp = oldOps.find(o => String(o.registration).trim() === String(op.registration).trim());
+            const payload: any = {
+              ...op,
+              registration: String(op.registration).trim(),
+              kpis: op.kpis || [],
+              feedbacks: op.feedbacks || []
+            };
+            if (oldOp && oldOp.documents === op.documents) {
+              delete payload.documents;
+            } else {
+              payload.documents = op.documents || [];
+            }
+            if (oldOp && oldOp.photoUrl === op.photoUrl) {
+              delete payload.photoUrl;
+            }
+
             const { error } = await supabase
               .from('operators')
-              .update(myRecord)
+              .upsert(payload, { onConflict: 'registration' });
+            if (error) throw error;
+          }
+        } else {
+          const myRecord = changedOps.find(op => op.user_id === user?.id || String(op.registration).trim() === String(userProfile?.registration).trim());
+          if (myRecord && user?.id) {
+            const payload: any = { ...myRecord };
+            delete payload.documents;
+            delete payload.photoUrl;
+
+            const { error } = await supabase
+              .from('operators')
+              .update(payload)
               .eq('user_id', user.id);
 
             if (error) {
               console.error("Erro ao salvar dados do operador:", JSON.stringify(error, null, 2));
               alert(`Erro ao salvar: ${error.message || 'Erro desconhecido'}`);
-              setOperators(oldOps); // Reverte em caso de erro
+              setOperators(oldOps);
             }
           }
         }
       } catch (e: any) {
         console.error("Erro de sincronização:", e);
-        setOperators(oldOps); // Reverte
+        setOperators(oldOps);
         alert(`Erro ao sincronizar dados: ${e.message}`);
       }
     }
-  }, [operators, supabase, isAdmin, user]);
+  }, [operators, supabase, isAdmin, user, userProfile]);
 
   // Função OTIMIZADA para atualizar um ÚNICO operador (Evita timeout)
   const handleSaveOperator = useCallback(async (updatedOperator: Operator) => {
-    // 1. Atualização Otimista Local
-    setOperators(prev => prev.map(op => op.registration === updatedOperator.registration ? updatedOperator : op));
+    const cleanReg = String(updatedOperator.registration).trim();
+    const normalizedUpdated: Operator = {
+      ...updatedOperator,
+      registration: cleanReg
+    };
 
-    // 2. Salvar no Supabase (Apenas o registro modificado)
+    // 1. Atualização Otimista Local (atualiza se existir, ou adiciona se for novo)
+    setOperators(prev => {
+      const exists = prev.some(op => String(op.registration).trim() === cleanReg);
+      if (exists) {
+        return prev.map(op => String(op.registration).trim() === cleanReg ? normalizedUpdated : op);
+      }
+      return [...prev, normalizedUpdated].sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    // 2. Salvar no Supabase (Apenas o registro modificado e campos alterados)
     if (supabase) {
       try {
-        console.log("Tentando salvar operador:", updatedOperator.registration);
+        console.log("Tentando salvar operador:", cleanReg);
 
-        // Encontrar versão atual no estado para comparar (Referential Check)
-        const currentOp = operators.find(op => op.registration === updatedOperator.registration);
+        const currentOp = operators.find(op => String(op.registration).trim() === cleanReg);
+        const payload: any = { ...normalizedUpdated };
 
-        // Copia superficial
-        const payload: any = { ...updatedOperator };
-
-        // OTIMIZAÇÃO CRÍTICA: Se a lista de documentos (que pode ser gigante com base64) 
-        // não mudou (mesma referência), REMOVEMOS do payload para evitar timeout.
-        if (currentOp && currentOp.documents === updatedOperator.documents) {
-          console.log("Documentos não alterados. Removendo do payload para economizar banda.");
+        // OTIMIZAÇÃO CRÍTICA: Remover colunas pesadas (Base64) que não foram alteradas
+        if (currentOp && currentOp.documents === normalizedUpdated.documents) {
           delete payload.documents;
         }
-
-        // Se feedbacks não mudaramm, também removemos
-        if (currentOp && currentOp.feedbacks === updatedOperator.feedbacks) {
+        if (currentOp && currentOp.photoUrl === normalizedUpdated.photoUrl) {
+          delete payload.photoUrl;
+        }
+        if (currentOp && currentOp.feedbacks === normalizedUpdated.feedbacks) {
           delete payload.feedbacks;
         }
-
-        // Se KPIs não mudaram, também removemos
-        if (currentOp && currentOp.kpis === updatedOperator.kpis) {
+        if (currentOp && currentOp.kpis === normalizedUpdated.kpis) {
           delete payload.kpis;
         }
 
-        // Garantir que os campos JSON não sejam undefined caso tenham sido incluídos
-        if (payload.kpis) payload.kpis = payload.kpis || [];
-        if (payload.feedbacks) payload.feedbacks = payload.feedbacks || [];
-        if (payload.documents) payload.documents = payload.documents || [];
+        if (payload.kpis !== undefined) payload.kpis = payload.kpis || [];
+        if (payload.feedbacks !== undefined) payload.feedbacks = payload.feedbacks || [];
+        if (payload.documents !== undefined) payload.documents = payload.documents || [];
 
-        // Usamos UPDATE em vez de UPSERT para garantir que colunas omitidas não sejam afetadas
-        // e para ser uma operação mais leve de PATCH.
-        const { data, error } = await supabase
+        // Usamos UPDATE e selecionamos apenas 'registration' para não trafegar Base64 de volta
+        let { data, error } = await supabase
           .from('operators')
           .update(payload)
-          .eq('registration', updatedOperator.registration)
-          .select();
+          .eq('registration', cleanReg)
+          .select('registration');
+
+        // Fallback: se o operador ainda não existia na tabela public.operators (0 linhas afetadas), fazemos UPSERT
+        if (!error && (!data || data.length === 0)) {
+          console.log("Operador ainda não existia no banco. Realizando upsert completo:", cleanReg);
+          const upsertPayload = {
+            ...normalizedUpdated,
+            kpis: normalizedUpdated.kpis || [],
+            feedbacks: normalizedUpdated.feedbacks || [],
+            documents: normalizedUpdated.documents || []
+          };
+          const upsertRes = await supabase
+            .from('operators')
+            .upsert(upsertPayload, { onConflict: 'registration' })
+            .select('registration');
+          data = upsertRes.data;
+          error = upsertRes.error;
+        }
 
         if (error) {
           console.error("ERRO CRÍTICO AO SALVAR NO SUPABASE:", error);
           alert(`Erro ao salvar alterações: ${error.message || JSON.stringify(error)}`);
 
-          // Reverter em caso de erro (busca do servidor)
-          const { data: serverData } = await supabase.from('operators').select('*').eq('registration', updatedOperator.registration).single();
+          // Reverter em caso de erro (busca versão leve do servidor)
+          const { data: serverData } = await supabase
+            .from('operators')
+            .select('user_id, registration, name, admissionDate, role, linkType, costCenter, classification, workMode, birthDate, photoUrl, active, kpis, feedbacks')
+            .eq('registration', cleanReg)
+            .maybeSingle();
           if (serverData) {
-            console.log("Revertendo para dados do servidor:", serverData);
-            setOperators(prev => prev.map(op => op.registration === updatedOperator.registration ? { ...serverData, kpis: serverData.kpis || [], feedbacks: serverData.feedbacks || [], documents: serverData.documents || [] } : op));
+            setOperators(prev => prev.map(op => String(op.registration).trim() === cleanReg ? {
+              ...serverData,
+              registration: String(serverData.registration).trim(),
+              kpis: serverData.kpis || [],
+              feedbacks: serverData.feedbacks || [],
+              documents: op.documents || []
+            } : op));
           }
         } else {
           console.log("Sucesso ao salvar no Supabase:", data);
@@ -177,7 +242,7 @@ const AppContent: React.FC = () => {
     } else {
       console.warn("Supabase client não disponível para salvar.");
     }
-  }, [supabase, operators]); // Adicionado 'operators' dependency para o diff funcionar
+  }, [supabase, operators]);
 
   const unreadCount = operators.reduce((acc, op) => {
     const opUnread = op.feedbacks?.filter(f => f.operatorResponse && f.isRead === false).length || 0;
@@ -434,7 +499,7 @@ const AppContent: React.FC = () => {
             {isAdmin && (
               <>
                 <Route path="/operators" element={<OperatorsList operators={operators} onUpdate={handleUpdateOperators} onSaveOperator={handleSaveOperator} userRole={userRole!} />} />
-                <Route path="/operator/:id" element={<OperatorDetail operators={operators} onUpdate={handleUpdateOperators} onSaveOperator={handleSaveOperator} userRole={userRole!} goals={goals} />} />
+                <Route path="/operator/:id" element={<OperatorDetail operators={operators} onUpdate={handleUpdateOperators} onSaveOperator={handleSaveOperator} userRole={userRole!} goals={goals} isDataLoading={isDataLoading} />} />
                 <Route path="/indicators" element={<Indicators operators={operators} goals={goals} userRole={userRole!} />} />
                 <Route path="/pending" element={<PendingIndicators operators={operators} onUpdate={handleUpdateOperators} userRole={userRole!} />} />
                 <Route path="/settings" element={<SettingsPage goals={goals} onUpdateGoals={handleUpdateGoals} cloudConfig={null} onUpdateCloudConfig={() => { }} />} />
@@ -447,8 +512,8 @@ const AppContent: React.FC = () => {
             {!isAdmin && (
               <>
                 <Route path="/my-pdi" element={<MyPdi operators={operators} />} />
-                <Route path="/my-profile" element={<OperatorDetail operators={operators} onUpdate={handleUpdateOperators} onSaveOperator={handleSaveOperator} userRole={userRole!} goals={goals} />} />
-                <Route path="/operator/:id" element={<OperatorDetail operators={operators} onUpdate={handleUpdateOperators} onSaveOperator={handleSaveOperator} userRole={userRole!} goals={goals} />} />
+                <Route path="/my-profile" element={<OperatorDetail operators={operators} onUpdate={handleUpdateOperators} onSaveOperator={handleSaveOperator} userRole={userRole!} goals={goals} isDataLoading={isDataLoading} />} />
+                <Route path="/operator/:id" element={<OperatorDetail operators={operators} onUpdate={handleUpdateOperators} onSaveOperator={handleSaveOperator} userRole={userRole!} goals={goals} isDataLoading={isDataLoading} />} />
               </>
             )}
 

@@ -551,8 +551,8 @@ const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({ operators }) 
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {(operatorAverages as any[]).slice(0, 10).map((op, i) => {
-                                        const opEvals = allEvaluations.filter(e => e.operator_registration === op.registration);
+                                    {(operatorAverages as any[]).map((op, i) => {
+                                        const opEvals = allEvaluations.filter(e => String(e.operator_registration).trim() === String(op.registration).trim());
                                         return (
                                             <tr key={op.registration} className="border-b hover:bg-gray-50">
                                                 <td className="py-3 px-4 font-medium text-gray-900">{op.fullName}</td>
