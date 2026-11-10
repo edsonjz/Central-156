@@ -177,15 +177,16 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
                     const exists = prev.some(op => String(op.registration).trim() === cleanReg);
                     const existingOp = prev.find(op => String(op.registration).trim() === cleanReg);
 
-                    // Preservar documentos e foto locais se o payload vier sem eles
+                    // Preservar documentos, foto, KPIs e feedbacks locais se o payload do Realtime vier parcial/TOAST omitido
                     const sanitizedOp = {
+                        ...existingOp,
                         ...newRecord,
                         registration: cleanReg,
-                        photoUrl: newRecord.photoUrl !== undefined ? newRecord.photoUrl : existingOp?.photoUrl,
-                        kpis: Array.isArray(newRecord.kpis) ? newRecord.kpis : (existingOp?.kpis || []),
-                        feedbacks: Array.isArray(newRecord.feedbacks) ? newRecord.feedbacks : (existingOp?.feedbacks || []),
-                        documents: Array.isArray(newRecord.documents) ? newRecord.documents : (existingOp?.documents || []),
-                        active: newRecord.active ?? true
+                        photoUrl: newRecord.photoUrl || existingOp?.photoUrl,
+                        kpis: (Array.isArray(newRecord.kpis) && newRecord.kpis.length > 0) ? newRecord.kpis : (existingOp?.kpis || []),
+                        feedbacks: (Array.isArray(newRecord.feedbacks) && newRecord.feedbacks.length > 0) ? newRecord.feedbacks : (existingOp?.feedbacks || []),
+                        documents: (Array.isArray(newRecord.documents) && newRecord.documents.length > 0) ? newRecord.documents : (existingOp?.documents || []),
+                        active: newRecord.active ?? existingOp?.active ?? true
                     };
 
                     if (exists) {
@@ -225,12 +226,16 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
                         if (data) {
                             setOperators(current => {
                                 const mergedOps = data.map((newOp: any) => {
-                                    const existingOp = current.find(c => c.registration === newOp.registration);
+                                    const cleanReg = String(newOp.registration || '').trim();
+                                    const existingOp = current.find(c => String(c.registration).trim() === cleanReg);
                                     return {
+                                        ...existingOp,
                                         ...newOp,
-                                        documents: existingOp ? existingOp.documents : [],
-                                        kpis: newOp.kpis || [],
-                                        feedbacks: newOp.feedbacks || [],
+                                        registration: cleanReg,
+                                        photoUrl: newOp.photoUrl || existingOp?.photoUrl,
+                                        documents: existingOp?.documents || [],
+                                        kpis: (Array.isArray(newOp.kpis) && newOp.kpis.length > 0) ? newOp.kpis : (existingOp?.kpis || []),
+                                        feedbacks: (Array.isArray(newOp.feedbacks) && newOp.feedbacks.length > 0) ? newOp.feedbacks : (existingOp?.feedbacks || []),
                                         active: newOp.active ?? true
                                     };
                                 });
