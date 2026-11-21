@@ -1,8 +1,6 @@
-
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Users,
   Clock,
   Heart,
   CheckCircle,
@@ -13,7 +11,14 @@ import {
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Operator, TeamGoals, OperatorClassification } from '../types';
-import { calculateAverageKPIs, getStatusColor, formatDecimal } from '../utils';
+import { MonthlyKpiRecord } from '../types/monthlyKpi';
+import {
+  fetchMonthKpis,
+  resolveCanonicalOperator,
+  getInitialSeedForMonth
+} from '../services/monthlyKpiService';
+import { useAuth } from '../AuthContext';
+import { calculateAverageKPIs, getStatusColor, formatDecimal, tmaToSeconds } from '../utils';
 import { MONTHS } from '../constants';
 
 const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '', onClick }: any) => {
@@ -24,7 +29,7 @@ const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '',
     blue: { bg: 'bg-blue-500/10', text: 'text-blue-600', ring: 'ring-blue-500/20' },
     indigo: { bg: 'bg-indigo-500/10', text: 'text-indigo-600', ring: 'ring-indigo-500/20' },
     rose: { bg: 'bg-rose-500/10', text: 'text-rose-600', ring: 'ring-rose-500/20' },
-    emerald: { bg: 'bg-emerald-500/10', text: 'text-emerald-600', ring: 'ring-emerald-500/20' },
+    emerald: { bg: 'bg-emerald-500/10', text: 'text-emerald-600', ring: 'ring-emerald-500/20' }
   };
 
   const theme = colorVariants[color] || colorVariants.blue;
@@ -32,10 +37,11 @@ const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '',
   return (
     <div
       onClick={onClick}
-      className={`relative overflow-hidden bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 hover:shadow-lg hover:border-slate-300 transition-all duration-300 group ${onClick ? 'cursor-pointer hover:-translate-y-0.5' : ''}`}
-      title={onClick ? "Clique para visualizar e ordenar na tela de Indicadores" : undefined}
+      className={`relative overflow-hidden bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 hover:shadow-lg hover:border-slate-300 transition-all duration-300 group ${
+        onClick ? 'cursor-pointer hover:-translate-y-0.5' : ''
+      }`}
+      title={onClick ? 'Clique para visualizar e ordenar na tela de Indicadores' : undefined}
     >
-      {/* Top bar accent */}
       <div className={`absolute top-0 left-0 right-0 h-1 ${isSuccess ? 'bg-emerald-500' : goal ? 'bg-amber-500' : 'bg-blue-500'}`} />
 
       <div className="flex justify-between items-start mb-4">
@@ -43,7 +49,13 @@ const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '',
           {icon}
         </div>
         {trend && (
-          <div className={`flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${trend > 0 ? 'text-emerald-700 bg-emerald-50 border border-emerald-200/60' : 'text-rose-700 bg-rose-50 border border-rose-200/60'}`}>
+          <div
+            className={`flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${
+              trend > 0
+                ? 'text-emerald-700 bg-emerald-50 border border-emerald-200/60'
+                : 'text-rose-700 bg-rose-50 border border-rose-200/60'
+            }`}
+          >
             {trend > 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
             {Math.abs(trend)}%
           </div>
@@ -54,10 +66,15 @@ const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '',
         <h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1.5">{title}</h3>
         <div className="flex items-baseline gap-2">
           <span className="text-3xl font-extrabold tracking-tight text-slate-900">
-            {typeof value === 'number' ? formatDecimal(value) : value}{unit}
+            {typeof value === 'number' ? formatDecimal(value) : value}
+            {unit}
           </span>
           {goal && (
-            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${isSuccess ? 'text-emerald-700 bg-emerald-50' : 'text-amber-700 bg-amber-50'}`}>
+            <span
+              className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                isSuccess ? 'text-emerald-700 bg-emerald-50' : 'text-amber-700 bg-amber-50'
+              }`}
+            >
               {isSuccess ? 'Na Meta' : 'Atenção'}
             </span>
           )}
@@ -67,7 +84,8 @@ const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '',
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
             <span className="text-slate-400 font-medium">Meta Estipulada:</span>
             <span className="font-bold text-slate-700">
-              {typeof goal === 'number' ? formatDecimal(goal) : goal}{unit}
+              {typeof goal === 'number' ? formatDecimal(goal) : goal}
+              {unit}
             </span>
           </div>
         )}
@@ -78,73 +96,132 @@ const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '',
   );
 };
 
-const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ operators, goals }) => {
+const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ operators, goals }) => {
   const navigate = useNavigate();
+  const { supabase, isAdmin } = useAuth();
   const currentDate = new Date();
   const [selectedMonth, setSelectedMonth] = useState(String(currentDate.getMonth() + 1));
   const [selectedYear, setSelectedYear] = useState(String(currentDate.getFullYear()));
   const [selectedClassification, setSelectedClassification] = useState<'all' | OperatorClassification>('all');
+  const [snapshotRecords, setSnapshotRecords] = useState<MonthlyKpiRecord[]>([]);
 
-  const activeOperators = useMemo(() => {
-    return operators.filter(o => {
-      const isActive = o.active !== false;
-      const matchesClassification = selectedClassification === 'all' || o.classification === selectedClassification;
-      return isActive && matchesClassification;
+  // Carrega o Snapshot Mensal do período selecionado
+  useEffect(() => {
+    let cancelled = false;
+    fetchMonthKpis(supabase, Number(selectedYear), Number(selectedMonth), { isAdmin }).then(({ data }) => {
+      if (!cancelled) {
+        setSnapshotRecords(data || []);
+      }
     });
-  }, [operators, selectedClassification]);
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, isAdmin, selectedYear, selectedMonth, operators]);
 
-  // Filtra os KPIs baseados na seleção para os Cards e Rankings
+  // Mapa de operadores cadastrados na Equipe (por matrícula e por chave canônica)
+  const operatorLookup = useMemo(() => {
+    const byReg = new Map<string, Operator>();
+    const byKey = new Map<string, Operator>();
+    for (const op of operators) {
+      const cleanReg = String(op.registration || '').trim();
+      if (cleanReg) byReg.set(cleanReg, op);
+      const canonical = resolveCanonicalOperator(op.name, cleanReg);
+      byKey.set(canonical.operador_chave, op);
+    }
+    return { byReg, byKey };
+  }, [operators]);
+
+  // Filtra APENAS os operadores ATIVOS no Snapshot Mensal e na Gestão de Equipe
+  const activeSnapshotOperators = useMemo(() => {
+    const nowYear = new Date().getFullYear();
+    const nowMonth = new Date().getMonth() + 1;
+    const isCurrentCompetencia = Number(selectedYear) === nowYear && Number(selectedMonth) === nowMonth;
+
+    return snapshotRecords.filter(rec => {
+      // 1. No Snapshot Mensal, precisa estar com status_mes === 'Ativo'
+      if (rec.status_mes && rec.status_mes !== 'Ativo') return false;
+
+      // 2. Se vinculado a um operador na Gestão de Equipe:
+      const linkedOp =
+        (rec.matricula && operatorLookup.byReg.get(String(rec.matricula).trim())) ||
+        operatorLookup.byKey.get(rec.operador_chave);
+
+      // No mês atual, se o operador foi desativado na aba Equipe, não aparece
+      if (isCurrentCompetencia && linkedOp && linkedOp.active === false) {
+        return false;
+      }
+
+      // 3. Filtro por atribuição (SMF / Outros)
+      if (selectedClassification !== 'all') {
+        if (linkedOp) {
+          if (linkedOp.classification !== selectedClassification) return false;
+        } else {
+          const teamUpper = (rec.equipe_turno || '').toUpperCase();
+          if (selectedClassification === OperatorClassification.SMF && !teamUpper.includes('SMF')) return false;
+          if (selectedClassification === OperatorClassification.OUTROS && teamUpper.includes('SMF')) return false;
+        }
+      }
+
+      return true;
+    });
+  }, [snapshotRecords, operatorLookup, selectedClassification, selectedYear, selectedMonth]);
+
+  // KPIs do período selecionado (apenas de operadores ativos)
   const currentPeriodKPIs = useMemo(() => {
     const targetKey = `${selectedYear}-${selectedMonth.padStart(2, '0')}`;
-    // IMPORTANTE: Para cada operador no período, pegamos apenas o lançamento MAIS RECENTE daquele mês específico.
-    return activeOperators.flatMap(op => {
-      const monthKpis = op.kpis.filter(k => k.month === targetKey);
-      if (monthKpis.length === 0) return [];
+    return activeSnapshotOperators.map((rec, idx) => ({
+      id: rec.id || `snap_${idx}`,
+      month: targetKey,
+      tma: rec.tma,
+      nps: rec.nps,
+      monitoria: rec.monitoria
+    }));
+  }, [activeSnapshotOperators, selectedMonth, selectedYear]);
 
-      // Ordena por createdAt desc e pega o primeiro
-      return monthKpis.sort((a, b) => {
-        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return dateB - dateA;
-      }).slice(0, 1);
-    });
-  }, [activeOperators, selectedMonth, selectedYear]);
-
-  // Conta operadores únicos que tem KPIs no período
   const operatorsWithKPIs = useMemo(() => {
-    const targetKey = `${selectedYear}-${selectedMonth.padStart(2, '0')}`;
-    return activeOperators.filter(op => op.kpis.some(k => k.month === targetKey)).length;
-  }, [activeOperators, selectedMonth, selectedYear]);
+    return activeSnapshotOperators.filter(
+      r =>
+        (r.tma && r.tma !== '00:00:00') ||
+        (r.nps !== null && r.nps !== undefined) ||
+        (r.monitoria !== null && r.monitoria !== undefined)
+    ).length;
+  }, [activeSnapshotOperators]);
 
   const teamStats = useMemo(() => {
     return calculateAverageKPIs(currentPeriodKPIs);
   }, [currentPeriodKPIs]);
 
-  // Dados do gráfico: Mostra todos os meses do ANO selecionado para dar contexto
+  // Dados do gráfico: evolução de todos os meses do ano selecionado (considerando apenas operadores ativos em cada mês)
   const chartData = useMemo(() => {
     return MONTHS.map((monthName, index) => {
-      const monthNum = String(index + 1).padStart(2, '0');
-      const monthKey = `${selectedYear}-${monthNum}`;
+      const monthNum = index + 1;
+      const isSelectedM = monthNum === Number(selectedMonth);
+      const sourceRows = isSelectedM
+        ? activeSnapshotOperators
+        : getInitialSeedForMonth(Number(selectedYear), monthNum).filter(r => r.status_mes === 'Ativo');
 
-      // PEGA APENAS O ÚLTIMO LANÇAMENTO DE CADA OPERADOR PARA ESTE MÊS
-      const monthKpis = activeOperators.flatMap(o => {
-        const kpis = o.kpis.filter(k => k.month === monthKey);
-        if (kpis.length === 0) return [];
-        // Ordena por createdAt desc e pega o primeiro
-        return kpis.sort((a, b) => {
-          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return dateB - dateA;
-        }).slice(0, 1);
+      const filteredRows = sourceRows.filter(rec => {
+        const linkedOp =
+          (rec.matricula && operatorLookup.byReg.get(String(rec.matricula).trim())) ||
+          operatorLookup.byKey.get(rec.operador_chave);
+        if (linkedOp && linkedOp.active === false) return false;
+        if (selectedClassification !== 'all' && linkedOp && linkedOp.classification !== selectedClassification) {
+          return false;
+        }
+        return true;
       });
 
-      const stats = calculateAverageKPIs(monthKpis);
+      const stats = calculateAverageKPIs(
+        filteredRows.map((r, i) => ({
+          id: `${monthNum}_${i}`,
+          month: `${selectedYear}-${String(monthNum).padStart(2, '0')}`,
+          tma: r.tma,
+          nps: r.nps,
+          monitoria: r.monitoria
+        }))
+      );
 
-      // Converte TMA de HH:MM:SS para segundos para o gráfico (para ter uma escala numérica)
-      const tmaSeconds = stats.tma ? (() => {
-        const parts = stats.tma.split(':');
-        return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseInt(parts[2]);
-      })() : 0;
+      const tmaSeconds = stats.tma ? tmaToSeconds(stats.tma) : 0;
 
       return {
         name: monthName,
@@ -154,43 +231,36 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
         tmaFormatted: stats.tma || '00:00:00'
       };
     });
-  }, [activeOperators, selectedYear]);
+  }, [activeSnapshotOperators, selectedMonth, selectedYear, operatorLookup, selectedClassification]);
 
   const topPerformers = useMemo(() => {
-    const targetKey = `${selectedYear}-${selectedMonth.padStart(2, '0')}`;
-
-    return activeOperators
-      .map(o => {
-        // Pega apenas o ÚLTIMO lançamento do mês selecionado
-        const monthKpis = o.kpis.filter(k => k.month === targetKey);
-        if (monthKpis.length === 0) return null;
-
-        const kpi = [...monthKpis].sort((a, b) => {
-          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return dateB - dateA;
-        })[0];
+    return activeSnapshotOperators
+      .map(rec => {
+        const linkedOp =
+          (rec.matricula && operatorLookup.byReg.get(String(rec.matricula).trim())) ||
+          operatorLookup.byKey.get(rec.operador_chave);
 
         const metrics: number[] = [];
-        if (kpi.nps !== null && kpi.nps !== undefined) metrics.push(Number(kpi.nps));
-        if (kpi.monitoria !== null && kpi.monitoria !== undefined) metrics.push(Number(kpi.monitoria));
-        const score = metrics.length > 0 ? metrics.reduce((a, b) => a + b, 0) / metrics.length : 0;
+        if (rec.nps !== null && rec.nps !== undefined) metrics.push(Number(rec.nps));
+        if (rec.monitoria !== null && rec.monitoria !== undefined) metrics.push(Number(rec.monitoria));
+        if (metrics.length === 0) return null;
+
+        const score = metrics.reduce((a, b) => a + b, 0) / metrics.length;
 
         return {
-          name: o.name,
-          score: score,
-          photoUrl: o.photoUrl,
-          tma: kpi.tma || '-',
-          monitoria: kpi.monitoria,
-          nps: kpi.nps
+          name: rec.operador_nome,
+          score,
+          photoUrl: linkedOp?.photoUrl,
+          tma: rec.tma || '-',
+          monitoria: rec.monitoria,
+          nps: rec.nps
         };
       })
-      .filter(Boolean) // Remove quem não tem KPI no mês
+      .filter(Boolean)
       .sort((a: any, b: any) => Number(b.score) - Number(a.score))
       .slice(0, 5);
-  }, [activeOperators, selectedMonth, selectedYear]);
+  }, [activeSnapshotOperators, operatorLookup]);
 
-  // Gera lista de anos (do atual para trás)
   const years = Array.from({ length: 5 }, (_, i) => String(new Date().getFullYear() - i));
 
   return (
@@ -199,7 +269,9 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-200/60">
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Visão Geral da Operação</h1>
-          <p className="text-slate-500 text-sm mt-1">Acompanhamento e evolução dos principais indicadores de atendimento</p>
+          <p className="text-slate-500 text-sm mt-1">
+            Acompanhamento dos operadores ativos em {MONTHS[Number(selectedMonth) - 1]}/{selectedYear}
+          </p>
         </div>
 
         {/* Premium Filter Bar */}
@@ -210,27 +282,31 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
           <select
             className="bg-transparent text-xs sm:text-sm font-semibold text-slate-700 outline-none cursor-pointer px-2 py-1.5 hover:bg-slate-50 rounded-lg transition-colors"
             value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
+            onChange={e => setSelectedMonth(e.target.value)}
           >
             {MONTHS.map((m, idx) => (
-              <option key={idx} value={String(idx + 1)}>{m}</option>
+              <option key={idx} value={String(idx + 1)}>
+                {m}
+              </option>
             ))}
           </select>
           <div className="w-px h-5 bg-slate-200" />
           <select
             className="bg-transparent text-xs sm:text-sm font-semibold text-slate-700 outline-none cursor-pointer px-2 py-1.5 hover:bg-slate-50 rounded-lg transition-colors"
             value={selectedYear}
-            onChange={(e) => setSelectedYear(e.target.value)}
+            onChange={e => setSelectedYear(e.target.value)}
           >
             {years.map(y => (
-              <option key={y} value={y}>{y}</option>
+              <option key={y} value={y}>
+                {y}
+              </option>
             ))}
           </select>
           <div className="w-px h-5 bg-slate-200" />
           <select
             className="bg-transparent text-xs sm:text-sm font-semibold text-slate-700 outline-none cursor-pointer px-2 py-1.5 hover:bg-slate-50 rounded-lg transition-colors"
             value={selectedClassification}
-            onChange={(e) => setSelectedClassification(e.target.value as any)}
+            onChange={e => setSelectedClassification(e.target.value as any)}
           >
             <option value="all">Todas Atribuições</option>
             <option value={OperatorClassification.SMF}>SMF</option>
@@ -240,52 +316,53 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard 
-          title="Operadores Computados" 
-          value={operatorsWithKPIs} 
-          subtitle={`Registros em ${MONTHS[Number(selectedMonth) - 1]}/${selectedYear} • Clique p/ ordenar`} 
-          icon={<Calendar size={24} />} 
-          color="blue" 
+        <StatCard
+          title="Operadores Ativos no Mês"
+          value={operatorsWithKPIs}
+          subtitle={`Ativos em ${MONTHS[Number(selectedMonth) - 1]}/${selectedYear} • Clique p/ ordenar`}
+          icon={<Calendar size={24} />}
+          color="blue"
           onClick={() => navigate('/indicators?sort=name&dir=asc')}
         />
-        <StatCard 
-          title="TMA Médio" 
-          value={teamStats.tma} 
-          goal={goals.tma} 
-          subtitle="Média do período • Clique p/ ordenar" 
-          icon={<Clock size={24} />} 
-          color="indigo" 
+        <StatCard
+          title="TMA Médio"
+          value={teamStats.tma}
+          goal={goals.tma}
+          subtitle="Média dos ativos • Clique p/ ordenar"
+          icon={<Clock size={24} />}
+          color="indigo"
           onClick={() => navigate('/indicators?sort=tma&dir=desc')}
         />
-        <StatCard 
-          title="NPS Geral" 
-          value={teamStats.nps} 
-          goal={goals.nps} 
-          subtitle="Satisfação • Clique p/ ordenar" 
-          icon={<Heart size={24} />} 
-          color="rose" 
+        <StatCard
+          title="NPS Geral"
+          value={teamStats.nps}
+          goal={goals.nps}
+          subtitle="Satisfação dos ativos • Clique p/ ordenar"
+          icon={<Heart size={24} />}
+          color="rose"
           onClick={() => navigate('/indicators?sort=nps&dir=desc')}
         />
-        <StatCard 
-          title="Monitoria" 
-          value={teamStats.monitoria} 
-          goal={goals.monitoria} 
-          subtitle="Qualidade • Clique p/ ordenar" 
-          icon={<CheckCircle size={24} />} 
-          color="emerald" 
+        <StatCard
+          title="Monitoria"
+          value={teamStats.monitoria}
+          goal={goals.monitoria}
+          subtitle="Qualidade dos ativos • Clique p/ ordenar"
+          icon={<CheckCircle size={24} />}
+          color="emerald"
           onClick={() => navigate('/indicators?sort=monitoria&dir=desc')}
         />
       </div>
 
-      {/* Charts Section */}
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Evolution Chart */}
         <div className="lg:col-span-2 bg-white p-6 sm:p-7 rounded-2xl shadow-sm border border-slate-200/80 hover:shadow-md transition-all duration-300">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div>
-              <h2 className="font-extrabold text-lg text-slate-900 tracking-tight">Evolução dos Indicadores em {selectedYear}</h2>
-              <p className="text-xs text-slate-500 mt-0.5">Histórico consolidado mês a mês</p>
+              <h2 className="font-extrabold text-lg text-slate-900 tracking-tight">
+                Evolução dos Indicadores em {selectedYear}
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">Histórico consolidado mês a mês (Operadores Ativos)</p>
             </div>
             <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-600">
               <div className="flex items-center gap-1.5">
@@ -319,7 +396,14 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#0f172a', borderRadius: '12px', border: 'none', boxShadow: '0 12px 32px -4px rgba(0,0,0,0.3)', padding: '12px 16px', color: '#fff' }}
+                  contentStyle={{
+                    backgroundColor: '#0f172a',
+                    borderRadius: '12px',
+                    border: 'none',
+                    boxShadow: '0 12px 32px -4px rgba(0,0,0,0.3)',
+                    padding: '12px 16px',
+                    color: '#fff'
+                  }}
                   labelStyle={{ color: '#94a3b8', fontWeight: 700, marginBottom: '4px' }}
                   formatter={(value: number, name: string, props: any) => {
                     if (name === 'TMA') {
@@ -341,7 +425,9 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="font-extrabold text-lg text-slate-900 tracking-tight">Destaques da Equipe</h2>
-              <p className="text-xs text-slate-500 mt-0.5">{MONTHS[Number(selectedMonth) - 1]} / {selectedYear}</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {MONTHS[Number(selectedMonth) - 1]} / {selectedYear} (Apenas Ativos)
+              </p>
             </div>
             <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200/60">
               Top 5
@@ -351,7 +437,7 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
           <div className="space-y-2.5">
             {topPerformers.length === 0 ? (
               <div className="text-center py-12 text-slate-400 text-sm">
-                Nenhum lançamento encontrado para este período.
+                Nenhum operador ativo com lançamento para este período.
               </div>
             ) : (
               topPerformers.map((op: any, index: number) => (
@@ -359,17 +445,20 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
                   key={op.name}
                   className="flex items-center gap-3 p-3 rounded-xl bg-slate-50/70 border border-slate-100 hover:bg-slate-100/80 hover:border-slate-200/80 transition-all group"
                 >
-                  {/* Position Badge */}
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-extrabold text-xs shrink-0 ${
-                    index === 0 ? 'bg-amber-400 text-amber-950 shadow-sm shadow-amber-400/30' :
-                    index === 1 ? 'bg-slate-300 text-slate-800' :
-                    index === 2 ? 'bg-amber-700 text-amber-100' :
-                    'bg-slate-200 text-slate-600'
-                  }`}>
+                  <div
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center font-extrabold text-xs shrink-0 ${
+                      index === 0
+                        ? 'bg-amber-400 text-amber-950 shadow-sm shadow-amber-400/30'
+                        : index === 1
+                        ? 'bg-slate-300 text-slate-800'
+                        : index === 2
+                        ? 'bg-amber-700 text-amber-100'
+                        : 'bg-slate-200 text-slate-600'
+                    }`}
+                  >
                     {index + 1}
                   </div>
 
-                  {/* Avatar */}
                   <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-xs overflow-hidden shrink-0 shadow-sm">
                     {op.photoUrl ? (
                       <img src={op.photoUrl} alt={op.name} className="w-full h-full object-cover" />
@@ -378,7 +467,6 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
                     )}
                   </div>
 
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">
                       {op.name}
@@ -396,7 +484,6 @@ const Dashboard: React.FC<{ operators: Operator[], goals: TeamGoals }> = ({ oper
                     </div>
                   </div>
 
-                  {/* Score */}
                   <div className="text-right shrink-0 pl-1">
                     <span className="text-base font-extrabold text-slate-900">{formatDecimal(op.score)}</span>
                     <p className="text-[9px] text-slate-400 font-semibold uppercase">Média</p>

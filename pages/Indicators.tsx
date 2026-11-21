@@ -58,7 +58,8 @@ import {
   exportMonthToExcel,
   downloadExcelTemplate,
   getCompetenciaLabel,
-  getAvailableSeedCompetencias
+  getAvailableSeedCompetencias,
+  resolveCanonicalOperator
 } from '../services/monthlyKpiService';
 import { ExcelImportModal } from '../components/kpis/ExcelImportModal';
 import { OperatorHistoryDrawer } from '../components/kpis/OperatorHistoryDrawer';
@@ -72,6 +73,7 @@ interface IndicatorsProps {
   operators: Operator[];
   goals: TeamGoals;
   userRole: Role;
+  onSaveOperator?: (op: Operator) => void;
 }
 
 const SEMAPHORE_STYLES: Record<SemaphoreLevel, { badge: string; dot: string; bar: string; text: string }> = {
@@ -204,31 +206,77 @@ const SummaryCard = ({
   );
 };
 
-const ToggleFilter = ({ value, onChange }: { value: 'best' | 'worst'; onChange: (v: 'best' | 'worst') => void }) => (
-  <div className="flex bg-slate-100 p-1 rounded-xl">
-    <button
-      onClick={() => onChange('best')}
-      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-        value === 'best' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-      }`}
-    >
-      Top 10
-    </button>
-    <button
-      onClick={() => onChange('worst')}
-      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-        value === 'worst' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-      }`}
-    >
-      Atenção
-    </button>
+const ToggleFilter = ({
+  value,
+  onChange,
+  page,
+  onPageChange,
+  totalCount
+}: {
+  value: 'best' | 'worst';
+  onChange: (v: 'best' | 'worst') => void;
+  page: 0 | 1;
+  onPageChange: (p: 0 | 1) => void;
+  totalCount: number;
+}) => (
+  <div className="flex items-center gap-1.5">
+    {totalCount > 5 && (
+      <div className="flex bg-slate-100 p-0.5 rounded-lg text-[10px] font-black">
+        <button
+          type="button"
+          onClick={() => onPageChange(0)}
+          className={`px-2 py-1 rounded-md transition-all ${
+            page === 0 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
+          }`}
+          title="Ver 1º ao 5º colocado"
+        >
+          1-5
+        </button>
+        <button
+          type="button"
+          onClick={() => onPageChange(1)}
+          className={`px-2 py-1 rounded-md transition-all ${
+            page === 1 ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'
+          }`}
+          title="Ver 6º ao 10º colocado"
+        >
+          6-10
+        </button>
+      </div>
+    )}
+    <div className="flex bg-slate-100 p-1 rounded-xl">
+      <button
+        type="button"
+        onClick={() => {
+          onChange('best');
+          onPageChange(0);
+        }}
+        className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all ${
+          value === 'best' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+        }`}
+      >
+        Top 10
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onChange('worst');
+          onPageChange(0);
+        }}
+        className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all ${
+          value === 'worst' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+        }`}
+      >
+        Atenção
+      </button>
+    </div>
   </div>
 );
 
 type TableSortColumn = 'name' | 'tma' | 'nps' | 'monitoria' | 'abs';
 type TableSortDirection = 'asc' | 'desc';
 
-const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
+const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOperator }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -243,10 +291,10 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
   const [isLoadingMonth, setIsLoadingMonth] = useState<boolean>(true);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Busca com Debounce (250ms) e Filtro de Status no Mês
+  // Busca com Debounce (250ms) e Filtro de Status no Mês (Padrão: Apenas Ativos)
   const [rawSearchTerm, setRawSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | MonthlyOperatorStatus>('all');
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<'all' | MonthlyOperatorStatus>('Ativo');
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -312,10 +360,13 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
     loadSelectedMonth(selectedYear, selectedMonth);
   }, [selectedYear, selectedMonth, loadSelectedMonth]);
 
-  // Filtros dos gráficos comparativos
+  // Filtros dos gráficos comparativos (5 operadores por vez, igual Qualidade)
   const [filterQualidade, setFilterQualidade] = useState<'best' | 'worst'>('best');
   const [filterNPS, setFilterNPS] = useState<'best' | 'worst'>('best');
   const [filterTMA, setFilterTMA] = useState<'best' | 'worst'>('best');
+  const [pageQualidade, setPageQualidade] = useState<0 | 1>(0);
+  const [pageNPS, setPageNPS] = useState<0 | 1>(0);
+  const [pageTMA, setPageTMA] = useState<0 | 1>(0);
 
   // Ordenação da Tabela de Performance
   const urlSort = (searchParams.get('sort') || location.state?.sort) as TableSortColumn | null;
@@ -354,13 +405,15 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
     setSearchParams({});
   };
 
-  // Mapa rápido de fotos/cadastros existentes para enriquecer o avatar quando o operador tiver matrícula
+  // Mapa rápido de fotos/cadastros existentes por matrícula e por chave canônica
   const operatorAvatarMap = useMemo(() => {
     const map = new Map<string, Operator>();
     for (const op of operators) {
       if (op.registration) {
         map.set(String(op.registration).trim(), op);
       }
+      const canonical = resolveCanonicalOperator(op.name, op.registration);
+      map.set(canonical.operador_chave, op);
     }
     return map;
   }, [operators]);
@@ -370,10 +423,17 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
     return monthRecords.some(r => r.abs !== null && r.abs !== undefined);
   }, [monthRecords]);
 
-  // Prepara os dados do mês selecionado
+  // Prepara os dados do mês selecionado sincronizando o status Ativo/Inativo com a Gestão de Equipe no mês atual
   const tableOperatorsData = useMemo(() => {
+    const now = new Date();
+    const isCurrentMonthView =
+      (selectedYear === now.getFullYear() && selectedMonth === now.getMonth() + 1) ||
+      (selectedYear === 2026 && selectedMonth === 11);
+
     return monthRecords.map(rec => {
-      const linkedOp = rec.matricula ? operatorAvatarMap.get(String(rec.matricula).trim()) : undefined;
+      const linkedOp =
+        (rec.matricula ? operatorAvatarMap.get(String(rec.matricula).trim()) : undefined) ||
+        operatorAvatarMap.get(rec.operador_chave);
       const hasTma = !!(rec.tma && rec.tma !== '00:00:00');
       const tmaSec = rec.tma_segundos ?? (hasTma ? tmaToSeconds(rec.tma) : null);
       const hasNps = rec.nps !== null && rec.nps !== undefined;
@@ -381,8 +441,15 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
       const hasAbs = rec.abs !== null && rec.abs !== undefined;
       const absPct = hasAbs ? (Number(rec.abs) <= 1.5 ? Number(rec.abs) * 100 : Number(rec.abs)) : null;
 
+      // Se estamos no mês atual e o operador está marcado como Inativo na aba Equipe (e o snapshot estava Ativo), reflete como Desligado/Inativo
+      let effectiveStatus: MonthlyOperatorStatus = rec.status_mes || 'Ativo';
+      if (isCurrentMonthView && linkedOp && linkedOp.active === false && effectiveStatus === 'Ativo') {
+        effectiveStatus = 'Desligado';
+      }
+
       return {
         ...rec,
+        status_mes: effectiveStatus,
         photoUrl: linkedOp?.photoUrl,
         shortName: rec.operador_nome.split(' ')[0],
         avgNps: hasNps ? Number(rec.nps) : null,
@@ -392,15 +459,15 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
         avgAbsPct: absPct
       };
     });
-  }, [monthRecords, operatorAvatarMap]);
+  }, [monthRecords, operatorAvatarMap, selectedYear, selectedMonth]);
 
-  // Cálculos consolidados do mês selecionado + Top Performers
+  // Cálculos consolidados do mês selecionado + Top Performers (considerando APENAS operadores ATIVOS no mês)
   const monthStats = useMemo(() => {
     const activeInMonth = tableOperatorsData.filter(r => r.status_mes === 'Ativo');
-    const tmaList = tableOperatorsData.filter(r => r.avgTmaSeconds !== null && r.avgTmaSeconds > 0);
-    const npsList = tableOperatorsData.filter(r => r.avgNps !== null);
-    const monList = tableOperatorsData.filter(r => r.avgMonitoria !== null);
-    const absList = tableOperatorsData.filter(r => r.avgAbsPct !== null);
+    const tmaList = activeInMonth.filter(r => r.avgTmaSeconds !== null && r.avgTmaSeconds > 0);
+    const npsList = activeInMonth.filter(r => r.avgNps !== null);
+    const monList = activeInMonth.filter(r => r.avgMonitoria !== null);
+    const absList = activeInMonth.filter(r => r.avgAbsPct !== null);
 
     const avgTmaSec =
       tmaList.length > 0
@@ -437,10 +504,11 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
     };
   }, [tableOperatorsData]);
 
-  // Dados ordenados para os 3 gráficos comparativos
+  // Dados ordenados para os 3 gráficos comparativos (Apenas Operadores Ativos no Mês)
   const getSortedChartData = useCallback(
     (metric: 'avgMonitoria' | 'avgNps' | 'avgTmaSeconds', mode: 'best' | 'worst') => {
       const valid = tableOperatorsData.filter(op => {
+        if (op.status_mes !== 'Ativo') return false;
         const val = op[metric];
         if (val === null || val === undefined) return false;
         if (metric === 'avgTmaSeconds' && val <= 0) return false;
@@ -460,9 +528,14 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
     [tableOperatorsData]
   );
 
-  const dataQualidade = useMemo(() => getSortedChartData('avgMonitoria', filterQualidade), [getSortedChartData, filterQualidade]);
-  const dataNPS = useMemo(() => getSortedChartData('avgNps', filterNPS), [getSortedChartData, filterNPS]);
-  const dataTMA = useMemo(() => getSortedChartData('avgTmaSeconds', filterTMA), [getSortedChartData, filterTMA]);
+  const fullQualidadeTop10 = useMemo(() => getSortedChartData('avgMonitoria', filterQualidade), [getSortedChartData, filterQualidade]);
+  const fullNPSTop10 = useMemo(() => getSortedChartData('avgNps', filterNPS), [getSortedChartData, filterNPS]);
+  const fullTMATop10 = useMemo(() => getSortedChartData('avgTmaSeconds', filterTMA), [getSortedChartData, filterTMA]);
+
+  // Exibe 5 operadores por vez em cada gráfico (igual Qualidade / Monitoria)
+  const dataQualidade = useMemo(() => fullQualidadeTop10.slice(pageQualidade * 5, pageQualidade * 5 + 5), [fullQualidadeTop10, pageQualidade]);
+  const dataNPS = useMemo(() => fullNPSTop10.slice(pageNPS * 5, pageNPS * 5 + 5), [fullNPSTop10, pageNPS]);
+  const dataTMA = useMemo(() => fullTMATop10.slice(pageTMA * 5, pageTMA * 5 + 5), [fullTMATop10, pageTMA]);
 
   // Filtro e Ordenação da Tabela Principal
   const sortedAndFilteredList = useMemo(() => {
@@ -517,6 +590,23 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
     });
   }, [tableOperatorsData, debouncedSearch, selectedStatusFilter, sortColumn, sortDirection]);
 
+  // Sincroniza o status Ativo/Inativo do Snapshot Mensal com a Gestão de Equipe (operators)
+  const syncOperatorStatusWithTeam = useCallback(
+    (record: MonthlyKpiRecord) => {
+      if (!onSaveOperator) return;
+      const linkedOp =
+        (record.matricula ? operatorAvatarMap.get(String(record.matricula).trim()) : undefined) ||
+        operatorAvatarMap.get(record.operador_chave);
+      if (!linkedOp) return;
+
+      const shouldBeActive = record.status_mes === 'Ativo';
+      if ((linkedOp.active !== false) !== shouldBeActive) {
+        onSaveOperator({ ...linkedOp, active: shouldBeActive });
+      }
+    },
+    [onSaveOperator, operatorAvatarMap]
+  );
+
   // Handlers de CRUD Mensal
   const handleSaveOperatorInMonth = async (record: MonthlyKpiRecord): Promise<{ error: string | null }> => {
     const { error } = await saveSingleMonthlyKpi(supabase, record);
@@ -524,12 +614,19 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
       setToast({ type: 'error', message: `Erro ao salvar: ${error}` });
       return { error };
     }
+    syncOperatorStatusWithTeam(record);
     await loadSelectedMonth(selectedYear, selectedMonth, true);
     setToast({
       type: 'success',
-      message: `Indicadores de "${record.operador_nome}" salvos em ${getCompetenciaLabel(selectedYear, selectedMonth)}!`
+      message: `Indicadores e status de "${record.operador_nome}" salvos em ${getCompetenciaLabel(selectedYear, selectedMonth)} e sincronizados com a Gestão de Equipe!`
     });
     return { error: null };
+  };
+
+  // Alteração rápida de status direto na tabela do Snapshot Mensal
+  const handleQuickStatusChange = async (op: MonthlyKpiRecord, newStatus: MonthlyOperatorStatus) => {
+    const updated: MonthlyKpiRecord = { ...op, status_mes: newStatus };
+    await handleSaveOperatorInMonth(updated);
   };
 
   const handleConfirmDeleteFromMonth = async () => {
@@ -721,12 +818,13 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
             <select
               value={selectedStatusFilter}
               onChange={e => setSelectedStatusFilter(e.target.value as any)}
-              className="bg-slate-100 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 outline-none cursor-pointer"
+              className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl text-xs font-black text-emerald-800 outline-none cursor-pointer"
             >
-              <option value="all">Todos os Status no Mês</option>
-              {MONTHLY_STATUS_LIST.map(st => (
+              <option value="Ativo">Exibindo: Apenas Operadores Ativos</option>
+              <option value="all">Exibindo: Todos os Status (Ativos + Inativos)</option>
+              {MONTHLY_STATUS_LIST.filter(s => s !== 'Ativo').map(st => (
                 <option key={st} value={st}>
-                  Status: {st}
+                  Filtrar Status: {st}
                 </option>
               ))}
             </select>
@@ -1169,15 +1267,32 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
                             </div>
                           </td>
 
-                          {/* Status / Equipe */}
+                          {/* Status / Equipe (Interativo para Supervisor sincronizar com Gestão de Equipe) */}
                           <td className="px-3 py-3.5 text-center">
-                            <span
-                              className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black border ${
-                                STATUS_BADGE_STYLES[op.status_mes || 'Ativo']
-                              }`}
-                            >
-                              {op.status_mes || 'Ativo'}
-                            </span>
+                            {userRole === Role.SUPERVISOR ? (
+                              <select
+                                value={op.status_mes || 'Ativo'}
+                                onChange={e => handleQuickStatusChange(op, e.target.value as MonthlyOperatorStatus)}
+                                className={`px-2.5 py-1 rounded-full text-[10px] font-black border outline-none cursor-pointer transition-all ${
+                                  STATUS_BADGE_STYLES[op.status_mes || 'Ativo']
+                                }`}
+                                title="Altere o status no mês (sincroniza automaticamente com a Gestão de Equipe e Dashboard)"
+                              >
+                                {MONTHLY_STATUS_LIST.map(st => (
+                                  <option key={st} value={st} className="bg-white text-slate-800 font-bold">
+                                    {st}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span
+                                className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black border ${
+                                  STATUS_BADGE_STYLES[op.status_mes || 'Ativo']
+                                }`}
+                              >
+                                {op.status_mes || 'Ativo'}
+                              </span>
+                            )}
                             {op.equipe_turno && (
                               <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{op.equipe_turno}</p>
                             )}
@@ -1308,26 +1423,33 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
         </h2>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* CHART 1: QUALIDADE */}
+          {/* CHART 1: QUALIDADE (5 POR VEZ) */}
           <div className="bg-gradient-to-br from-white via-white to-slate-50 p-6 rounded-2xl shadow-sm border border-slate-100/80 flex flex-col">
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex justify-between items-center mb-6 gap-2">
               <h3 className="font-black text-slate-700 flex items-center gap-2 text-sm">
                 <div className="p-1.5 rounded-lg bg-emerald-50">
                   <CheckCircle size={14} className="text-emerald-500" />
                 </div>
                 Qualidade (Monitoria)
               </h3>
-              <ToggleFilter value={filterQualidade} onChange={setFilterQualidade} />
+              <ToggleFilter
+                value={filterQualidade}
+                onChange={setFilterQualidade}
+                page={pageQualidade}
+                onPageChange={setPageQualidade}
+                totalCount={fullQualidadeTop10.length}
+              />
             </div>
             <div className="h-64">
               {dataQualidade.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dataQualidade} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} layout="vertical">
+                  <BarChart data={dataQualidade} margin={{ top: 0, right: 0, left: -10, bottom: 0 }} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
                     <XAxis type="number" domain={[0, 100]} hide />
                     <YAxis
                       dataKey="shortName"
                       type="category"
+                      interval={0}
                       width={85}
                       tick={{ fontSize: 11, fill: '#64748b', fontWeight: 700 }}
                       axisLine={false}
@@ -1340,7 +1462,7 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
                     <Bar
                       dataKey="avgMonitoria"
                       radius={[0, 6, 6, 0]}
-                      barSize={18}
+                      barSize={20}
                       fill={filterQualidade === 'best' ? '#10b981' : '#f59e0b'}
                     />
                   </BarChart>
@@ -1353,26 +1475,33 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
             </div>
           </div>
 
-          {/* CHART 2: NPS */}
+          {/* CHART 2: NPS (5 POR VEZ, IGUAL QUALIDADE) */}
           <div className="bg-gradient-to-br from-white via-white to-slate-50 p-6 rounded-2xl shadow-sm border border-slate-100/80 flex flex-col">
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex justify-between items-center mb-6 gap-2">
               <h3 className="font-black text-slate-700 flex items-center gap-2 text-sm">
                 <div className="p-1.5 rounded-lg bg-blue-50">
                   <Heart size={14} className="text-blue-500" />
                 </div>
                 NPS
               </h3>
-              <ToggleFilter value={filterNPS} onChange={setFilterNPS} />
+              <ToggleFilter
+                value={filterNPS}
+                onChange={setFilterNPS}
+                page={pageNPS}
+                onPageChange={setPageNPS}
+                totalCount={fullNPSTop10.length}
+              />
             </div>
             <div className="h-64">
               {dataNPS.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dataNPS} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} layout="vertical">
+                  <BarChart data={dataNPS} margin={{ top: 0, right: 0, left: -10, bottom: 0 }} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
                     <XAxis type="number" domain={[0, 100]} hide />
                     <YAxis
                       dataKey="shortName"
                       type="category"
+                      interval={0}
                       width={85}
                       tick={{ fontSize: 11, fill: '#64748b', fontWeight: 700 }}
                       axisLine={false}
@@ -1385,7 +1514,7 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
                     <Bar
                       dataKey="avgNps"
                       radius={[0, 6, 6, 0]}
-                      barSize={18}
+                      barSize={20}
                       fill={filterNPS === 'best' ? '#3b82f6' : '#f59e0b'}
                     />
                   </BarChart>
@@ -1398,26 +1527,33 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
             </div>
           </div>
 
-          {/* CHART 3: TMA */}
+          {/* CHART 3: TMA (5 POR VEZ, IGUAL QUALIDADE) */}
           <div className="bg-gradient-to-br from-white via-white to-slate-50 p-6 rounded-2xl shadow-sm border border-slate-100/80 flex flex-col">
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex justify-between items-center mb-6 gap-2">
               <h3 className="font-black text-slate-700 flex items-center gap-2 text-sm">
                 <div className="p-1.5 rounded-lg bg-indigo-50">
                   <Clock size={14} className="text-indigo-500" />
                 </div>
                 TMA
               </h3>
-              <ToggleFilter value={filterTMA} onChange={setFilterTMA} />
+              <ToggleFilter
+                value={filterTMA}
+                onChange={setFilterTMA}
+                page={pageTMA}
+                onPageChange={setPageTMA}
+                totalCount={fullTMATop10.length}
+              />
             </div>
             <div className="h-64">
               {dataTMA.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dataTMA} margin={{ top: 0, right: 0, left: -20, bottom: 0 }} layout="vertical">
+                  <BarChart data={dataTMA} margin={{ top: 0, right: 0, left: -10, bottom: 0 }} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
                     <XAxis type="number" hide />
                     <YAxis
                       dataKey="shortName"
                       type="category"
+                      interval={0}
                       width={85}
                       tick={{ fontSize: 11, fill: '#64748b', fontWeight: 700 }}
                       axisLine={false}
@@ -1430,7 +1566,7 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole }) => {
                     <Bar
                       dataKey="avgTmaSeconds"
                       radius={[0, 6, 6, 0]}
-                      barSize={18}
+                      barSize={20}
                       fill={filterTMA === 'best' ? '#6366f1' : '#f43f5e'}
                     />
                   </BarChart>

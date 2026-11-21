@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -32,6 +33,8 @@ import {
 import { Operator, Role, KPI, Feedback, TeamGoals, OperatorClassification } from '../types';
 import { calculateAverageKPIs, getStatusColor, formatDecimal, generateSystemEmail, getLatestKPIsPerMonth, compressImage } from '../utils';
 import { useAuth } from '../AuthContext';
+import { MONTHS } from '../constants';
+import { saveSingleMonthlyKpi, resolveCanonicalOperator } from '../services/monthlyKpiService';
 
 interface OperatorDetailProps {
   operators: Operator[];
@@ -286,46 +289,51 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
 
   // --- KPI LOGIC ---
 
+  const getCurrentYearMonth = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  };
+
   const handleOpenKPIModal = (kpi?: KPI) => {
     if (kpi) {
       setEditingKPI(kpi);
       setKpiForm({
-        month: kpi.month,
+        month: kpi.month || getCurrentYearMonth(),
         tma: kpi.tma || '',
         nps: kpi.nps !== null ? String(kpi.nps) : '',
         monitoria: kpi.monitoria !== null ? String(kpi.monitoria) : ''
       });
     } else {
       setEditingKPI(null);
-      // Ao abrir novo, campos vazios
-      setKpiForm({ month: '', tma: '', nps: '', monitoria: '' });
+      // Ao abrir novo lançamento, já preenche automaticamente o Mês e Ano atual para agilizar o lançamento
+      setKpiForm({ month: getCurrentYearMonth(), tma: '', nps: '', monitoria: '' });
     }
     setModalKPI(true);
   };
 
-  const handleSaveKPI = (e: React.FormEvent) => {
+  const handleSaveKPI = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const targetMonth = kpiForm.month || getCurrentYearMonth();
 
     // Converte strings vazias para null
     const finalKPI = {
-      tma: kpiForm.tma.trim() === '' ? null : kpiForm.tma,
+      tma: kpiForm.tma.trim() === '' ? null : kpiForm.tma.trim(),
       nps: kpiForm.nps === '' ? null : Number(kpiForm.nps),
       monitoria: kpiForm.monitoria === '' ? null : Number(kpiForm.monitoria),
-      month: kpiForm.month
+      month: targetMonth
     };
 
     if (!operator) return;
 
     let updatedKpis;
     if (editingKPI) {
-      // Se estou editando, atualizo o registro existente mantendo ID e createdAt (se tiver)
       updatedKpis = operator.kpis.map(k =>
         k.id === editingKPI.id
           ? { ...k, ...finalKPI }
           : k
       );
     } else {
-      // Se é novo, crio um novo ID e registro o momento do lançamento
       const newKpi: KPI = {
         id: Math.random().toString(),
         ...finalKPI,
@@ -334,8 +342,31 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
       updatedKpis = [...operator.kpis, newKpi];
     }
 
-    // OTIMIZADO
+    // 1. Salva na ficha do operador (public.operators)
     onSaveOperator({ ...operator, kpis: updatedKpis });
+
+    // 2. Sincroniza automaticamente com o Snapshot Mensal de Indicadores
+    const [anoStr, mesStr] = targetMonth.split('-');
+    const anoNum = Number(anoStr);
+    const mesNum = Number(mesStr);
+    if (anoNum && mesNum) {
+      const canonical = resolveCanonicalOperator(operator.name, operator.registration);
+      await saveSingleMonthlyKpi(supabase, {
+        ano: anoNum,
+        mes: mesNum,
+        operador_chave: canonical.operador_chave,
+        operador_nome: operator.name,
+        matricula: operator.registration,
+        tma: finalKPI.tma,
+        tma_segundos: null,
+        nps: finalKPI.nps,
+        monitoria: finalKPI.monitoria,
+        abs: null,
+        equipe_turno: `${operator.classification || 'Central 156'} / ${operator.workMode || 'Presencial'}`,
+        status_mes: operator.active !== false ? 'Ativo' : 'Desligado',
+        observacoes: null
+      });
+    }
 
     setModalKPI(false);
   };
@@ -441,7 +472,7 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-12 animate-fade-in-up">
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Top Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200/60">
         <div className="flex items-center gap-3">
@@ -630,6 +661,137 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
                     </button>
                   )}
                 </div>
+
+                {/* Painel Rápido no Topo: aparece imediatamente ao clicar em Novo Lançamento sem precisar rolar a página */}
+                {modalKPI && (
+                  <div className="bg-blue-50/70 border-2 border-blue-200 rounded-2xl p-5 shadow-md animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 rounded-xl bg-blue-600 text-white">
+                          <TrendingUp size={16} />
+                        </div>
+                        <div>
+                          <h5 className="font-black text-sm text-slate-900">
+                            {editingKPI ? 'Editar Indicadores' : 'Lançar Indicadores (Acesso Rápido)'}
+                          </h5>
+                          <p className="text-[11px] text-slate-500">
+                            Mês e Ano atuais já preenchidos automaticamente • Altere qualquer campo se desejar
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setModalKPI(false)}
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-white/80"
+                      >
+                        <X size={18} />
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleSaveKPI} className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+                      <div className="sm:col-span-2">
+                        <label className="text-[11px] font-black text-slate-600 block mb-1 uppercase">
+                          Mês / Ano de Referência
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <select
+                            className="flex-1 bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-800 outline-none focus:border-blue-500"
+                            value={Number((kpiForm.month || getCurrentYearMonth()).split('-')[1])}
+                            onChange={e => {
+                              const yr = (kpiForm.month || getCurrentYearMonth()).split('-')[0];
+                              const mn = String(e.target.value).padStart(2, '0');
+                              setKpiForm({ ...kpiForm, month: `${yr}-${mn}` });
+                            }}
+                          >
+                            {MONTHS.map((m, idx) => (
+                              <option key={m} value={idx + 1}>
+                                {m}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            className="w-24 bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-800 outline-none focus:border-blue-500"
+                            value={Number((kpiForm.month || getCurrentYearMonth()).split('-')[0])}
+                            onChange={e => {
+                              const yr = e.target.value;
+                              const mn = (kpiForm.month || getCurrentYearMonth()).split('-')[1] || '01';
+                              setKpiForm({ ...kpiForm, month: `${yr}-${mn}` });
+                            }}
+                          >
+                            {[2024, 2025, 2026, 2027].map(y => (
+                              <option key={y} value={y}>
+                                {y}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-black text-slate-600 block mb-1 uppercase">
+                          TMA (hh:mm:ss)
+                        </label>
+                        <input
+                          type="text"
+                          autoFocus
+                          placeholder="00:04:15"
+                          className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-mono font-bold text-slate-800 outline-none focus:border-blue-500"
+                          value={kpiForm.tma}
+                          onChange={e => setKpiForm({ ...kpiForm, tma: e.target.value })}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-black text-slate-600 block mb-1 uppercase">
+                          NPS (0-100)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          max="100"
+                          min="0"
+                          placeholder="92.5"
+                          className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-800 outline-none focus:border-blue-500"
+                          value={kpiForm.nps}
+                          onChange={e => setKpiForm({ ...kpiForm, nps: e.target.value })}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-black text-slate-600 block mb-1 uppercase">
+                          Monitoria (%)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          max="100"
+                          min="0"
+                          placeholder="96.0"
+                          className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-800 outline-none focus:border-blue-500"
+                          value={kpiForm.monitoria}
+                          onChange={e => setKpiForm({ ...kpiForm, monitoria: e.target.value })}
+                        />
+                      </div>
+
+                      <div className="sm:col-span-5 flex items-center justify-end gap-2 pt-2 border-t border-blue-200/60">
+                        <button
+                          type="button"
+                          onClick={() => setModalKPI(false)}
+                          className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-100"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="submit"
+                          className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black shadow-md transition-all"
+                        >
+                          <Check size={15} />
+                          <span>{editingKPI ? 'Salvar Alterações' : 'Confirmar Lançamento'}</span>
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[500px]">
                     <thead>
@@ -927,79 +1089,114 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
         </div>
       </div>
 
-      {modalKPI && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-6 border-b flex justify-between items-center bg-gray-50">
-              <h3 className="font-bold text-lg text-gray-800">
-                {editingKPI ? 'Editar Indicadores' : 'Lançar Indicadores'}
-              </h3>
-              <button onClick={() => setModalKPI(false)} className="text-gray-400 hover:text-gray-600">
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleSaveKPI} className="p-6 space-y-4">
-              <div>
-                <label className="text-xs font-bold text-gray-400 block mb-1 uppercase">Mês de Referência</label>
-                <input
-                  required
-                  type="month"
-                  className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none"
-                  value={kpiForm.month}
-                  onChange={e => setKpiForm({ ...kpiForm, month: e.target.value })}
-                />
-              </div>
-              <div className="grid grid-cols-1 gap-4">
+      {modalKPI &&
+        createPortal(
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+              <div className="p-5 border-b flex justify-between items-center bg-slate-900 text-white">
                 <div>
-                  <label className="text-xs font-bold text-gray-400 block mb-1 uppercase">TMA (Tempo Médio)</label>
-                  <input
-                    type="text"
-                    placeholder="Deixe em branco se não houver"
-                    className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none font-mono"
-                    value={kpiForm.tma}
-                    onChange={e => setKpiForm({ ...kpiForm, tma: e.target.value })}
-                  />
-                  <p className="text-[10px] text-gray-400 mt-1">Ex: 00:04:30. Deixe vazio para não contabilizar.</p>
+                  <h3 className="font-black text-base">
+                    {editingKPI ? 'Editar Indicadores' : 'Lançar Indicadores'}
+                  </h3>
+                  <p className="text-[11px] text-slate-300">
+                    {operator.name} (#{operator.registration})
+                  </p>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs font-bold text-gray-400 block mb-1 uppercase">NPS (0-100)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      max="100"
-                      min="0"
-                      className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none"
-                      value={kpiForm.nps}
-                      onChange={e => setKpiForm({ ...kpiForm, nps: e.target.value })}
-                      placeholder="-"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-gray-400 block mb-1 uppercase">Monitoria</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      max="100"
-                      min="0"
-                      className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none"
-                      value={kpiForm.monitoria}
-                      onChange={e => setKpiForm({ ...kpiForm, monitoria: e.target.value })}
-                      placeholder="-"
-                    />
-                  </div>
-                </div>
+                <button onClick={() => setModalKPI(false)} className="text-slate-400 hover:text-white">
+                  <X size={20} />
+                </button>
               </div>
-              <button
-                type="submit"
-                className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold mt-2 shadow-lg hover:bg-blue-700 transition-all active:scale-95"
-              >
-                {editingKPI ? 'Salvar Alterações' : 'Confirmar Lançamento'}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
+              <form onSubmit={handleSaveKPI} className="p-6 space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-500 block mb-1.5 uppercase">
+                    Mês e Ano de Referência
+                  </label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <select
+                      className="w-full border border-slate-300 rounded-xl p-2.5 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                      value={Number((kpiForm.month || getCurrentYearMonth()).split('-')[1])}
+                      onChange={e => {
+                        const yr = (kpiForm.month || getCurrentYearMonth()).split('-')[0];
+                        const mn = String(e.target.value).padStart(2, '0');
+                        setKpiForm({ ...kpiForm, month: `${yr}-${mn}` });
+                      }}
+                    >
+                      {MONTHS.map((m, idx) => (
+                        <option key={m} value={idx + 1}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      className="w-full border border-slate-300 rounded-xl p-2.5 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-blue-500/20 outline-none"
+                      value={Number((kpiForm.month || getCurrentYearMonth()).split('-')[0])}
+                      onChange={e => {
+                        const yr = e.target.value;
+                        const mn = (kpiForm.month || getCurrentYearMonth()).split('-')[1] || '01';
+                        setKpiForm({ ...kpiForm, month: `${yr}-${mn}` });
+                      }}
+                    >
+                      {[2024, 2025, 2026, 2027].map(y => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-slate-500 block mb-1 uppercase">TMA (Tempo Médio)</label>
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="Ex: 00:04:15 (deixe em branco se não houver)"
+                      className="w-full border border-slate-300 rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-blue-500/20 outline-none font-mono font-bold"
+                      value={kpiForm.tma}
+                      onChange={e => setKpiForm({ ...kpiForm, tma: e.target.value })}
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">Ex: 00:04:30. Deixe vazio para não contabilizar.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 block mb-1 uppercase">NPS (0-100)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        max="100"
+                        min="0"
+                        className="w-full border border-slate-300 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none"
+                        value={kpiForm.nps}
+                        onChange={e => setKpiForm({ ...kpiForm, nps: e.target.value })}
+                        placeholder="-"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 block mb-1 uppercase">Monitoria (%)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        max="100"
+                        min="0"
+                        className="w-full border border-slate-300 rounded-xl p-2.5 text-sm font-bold focus:ring-2 focus:ring-blue-500/20 outline-none"
+                        value={kpiForm.monitoria}
+                        onChange={e => setKpiForm({ ...kpiForm, monitoria: e.target.value })}
+                        placeholder="-"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold mt-2 shadow-lg hover:bg-blue-700 transition-all active:scale-95"
+                >
+                  {editingKPI ? 'Salvar Alterações' : 'Confirmar Lançamento'}
+                </button>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {accessModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">

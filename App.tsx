@@ -500,7 +500,7 @@ const AppContent: React.FC = () => {
               <>
                 <Route path="/operators" element={<OperatorsList operators={operators} onUpdate={handleUpdateOperators} onSaveOperator={handleSaveOperator} userRole={userRole!} />} />
                 <Route path="/operator/:id" element={<OperatorDetail operators={operators} onUpdate={handleUpdateOperators} onSaveOperator={handleSaveOperator} userRole={userRole!} goals={goals} isDataLoading={isDataLoading} />} />
-                <Route path="/indicators" element={<Indicators operators={operators} goals={goals} userRole={userRole!} />} />
+                <Route path="/indicators" element={<Indicators operators={operators} goals={goals} userRole={userRole!} onSaveOperator={handleSaveOperator} />} />
                 <Route path="/pending" element={<PendingIndicators operators={operators} onUpdate={handleUpdateOperators} userRole={userRole!} />} />
                 <Route path="/settings" element={<SettingsPage goals={goals} onUpdateGoals={handleUpdateGoals} cloudConfig={null} onUpdateCloudConfig={() => { }} />} />
                 <Route path="/evaluation" element={<PerformanceEvaluation operators={operators} goals={goals} userRole={userRole!} />} />

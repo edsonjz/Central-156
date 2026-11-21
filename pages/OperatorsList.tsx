@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -17,6 +17,12 @@ import {
 import { Operator, Role, LinkType, WorkMode, OperatorClassification } from '../types';
 import { useAuth } from '../AuthContext';
 import { generateSystemEmail } from '../utils';
+import {
+  fetchMonthKpis,
+  saveSingleMonthlyKpi,
+  resolveCanonicalOperator
+} from '../services/monthlyKpiService';
+import { MonthlyOperatorStatus } from '../types/monthlyKpi';
 
 interface OperatorsListProps {
   operators: Operator[];
@@ -31,6 +37,8 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
   const [searchTerm, setSearchTerm] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | WorkMode>('all');
   const [filterClassification, setFilterClassification] = useState<'all' | OperatorClassification>('all');
+  const [filterStatus, setFilterStatus] = useState<'active' | 'all' | 'inactive'>('all');
+  const [snapshotStatusMap, setSnapshotStatusMap] = useState<Record<string, MonthlyOperatorStatus>>({});
   const [modalOpen, setModalOpen] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [selectedOperatorForPassword, setSelectedOperatorForPassword] = useState<Operator | null>(null);
@@ -48,11 +56,56 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
   // New Password State (Only for creation)
   const [newPassword, setNewPassword] = useState('');
 
+  // Sincroniza status com o Snapshot Mensal de Indicadores do mês corrente
+  useEffect(() => {
+    let cancelled = false;
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+
+    fetchMonthKpis(supabase, currentYear, currentMonth).then(({ data }) => {
+      if (cancelled || !data) return;
+      const statusMap: Record<string, MonthlyOperatorStatus> = {};
+      for (const rec of data) {
+        if (rec.matricula) {
+          statusMap[String(rec.matricula).trim()] = rec.status_mes || 'Ativo';
+        }
+        statusMap[rec.operador_chave] = rec.status_mes || 'Ativo';
+      }
+      setSnapshotStatusMap(statusMap);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, operators]);
+
+  const getEffectiveOperatorActive = (op: Operator): boolean => {
+    const cleanReg = String(op.registration).trim();
+    const canonical = resolveCanonicalOperator(op.name, cleanReg);
+    const snapStatus = snapshotStatusMap[cleanReg] || snapshotStatusMap[canonical.operador_chave];
+    if (snapStatus && snapStatus !== 'Ativo') {
+      return false;
+    }
+    return op.active !== false;
+  };
+
+  const getOperatorSnapshotBadge = (op: Operator): MonthlyOperatorStatus => {
+    const cleanReg = String(op.registration).trim();
+    const canonical = resolveCanonicalOperator(op.name, cleanReg);
+    const snapStatus = snapshotStatusMap[cleanReg] || snapshotStatusMap[canonical.operador_chave];
+    if (snapStatus) return snapStatus;
+    return op.active !== false ? 'Ativo' : 'Desligado';
+  };
+
   const filteredOperators = operators.filter(op => {
     const matchesSearch = op.name.toLowerCase().includes(searchTerm.toLowerCase()) || op.registration.includes(searchTerm);
     const matchesMode = filterMode === 'all' || op.workMode === filterMode;
     const matchesClassification = filterClassification === 'all' || op.classification === filterClassification;
-    return matchesSearch && matchesMode && matchesClassification;
+    const isActive = getEffectiveOperatorActive(op);
+    const matchesStatus =
+      filterStatus === 'all' ? true : filterStatus === 'active' ? isActive : !isActive;
+    return matchesSearch && matchesMode && matchesClassification && matchesStatus;
   });
 
   const handleOpenModal = (op?: Operator) => {
@@ -173,10 +226,47 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
     const target = operators.find(o => o.registration === registration);
     if (!target) return;
 
-    const newStatus = !target.active;
+    const currentlyActive = getEffectiveOperatorActive(target);
+    const newStatus = !currentlyActive;
+    const newMonthlyStatus: MonthlyOperatorStatus = newStatus ? 'Ativo' : 'Desligado';
 
-    // OTIMIZADO
+    // 1. Atualiza na tabela operators
     onSaveOperator({ ...target, active: newStatus });
+
+    // 2. Sincroniza imediatamente com o Snapshot Mensal do mês atual
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const canonical = resolveCanonicalOperator(target.name, target.registration);
+
+    setSnapshotStatusMap(prev => ({
+      ...prev,
+      [String(target.registration).trim()]: newMonthlyStatus,
+      [canonical.operador_chave]: newMonthlyStatus
+    }));
+
+    const { data: monthList } = await fetchMonthKpis(supabase, currentYear, currentMonth);
+    const existingInMonth = (monthList || []).find(
+      r => r.operador_chave === canonical.operador_chave || r.matricula === String(target.registration).trim()
+    );
+
+    await saveSingleMonthlyKpi(supabase, {
+      ...(existingInMonth || {
+        ano: currentYear,
+        mes: currentMonth,
+        operador_chave: canonical.operador_chave,
+        operador_nome: target.name,
+        matricula: String(target.registration).trim(),
+        monitoria: null,
+        tma: null,
+        tma_segundos: null,
+        nps: null,
+        abs: null,
+        equipe_turno: `${target.classification || 'Central 156'} / ${target.workMode || 'Presencial'}`,
+        observacoes: null
+      }),
+      status_mes: newMonthlyStatus
+    });
   };
 
   return (
@@ -214,6 +304,15 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
           />
         </div>
         <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full md:w-auto">
+          <select
+            className="text-xs font-semibold bg-slate-50 border border-slate-200 text-slate-700 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value as any)}
+          >
+            <option value="all">Todos os Status</option>
+            <option value="active">Apenas Ativos</option>
+            <option value="inactive">Inativos / Afastados</option>
+          </select>
           <select
             className="text-xs font-semibold bg-slate-50 border border-slate-200 text-slate-700 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer"
             value={filterMode}
@@ -301,14 +400,24 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
                       </span>
                     </td>
                     <td className="px-5 py-4 whitespace-nowrap">
-                      <button
-                        onClick={() => handleToggleStatus(op.registration)}
-                        className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full transition-all cursor-pointer ${op.active ? 'text-emerald-700 bg-emerald-50 border border-emerald-200/60' : 'text-slate-500 bg-slate-100'}`}
-                        title="Alterar status de atividade"
-                      >
-                        <span className={`w-1.5 h-1.5 rounded-full ${op.active ? 'bg-emerald-500' : 'bg-slate-400'}`} />
-                        {op.active ? 'Ativo' : 'Inativo'}
-                      </button>
+                      {(() => {
+                        const isEffActive = getEffectiveOperatorActive(op);
+                        const snapBadge = getOperatorSnapshotBadge(op);
+                        return (
+                          <button
+                            onClick={() => handleToggleStatus(op.registration)}
+                            className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full transition-all cursor-pointer ${
+                              isEffActive
+                                ? 'text-emerald-700 bg-emerald-50 border border-emerald-200/60'
+                                : 'text-rose-700 bg-rose-50 border border-rose-200/60'
+                            }`}
+                            title="Clique para alternar entre Ativo e Inativo (sincronizado com Snapshot Mensal)"
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${isEffActive ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                            {isEffActive ? 'Ativo' : `Inativo (${snapBadge === 'Ativo' ? 'Inativo' : snapBadge})`}
+                          </button>
+                        );
+                      })()}
                     </td>
                     <td className="px-5 py-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1">
