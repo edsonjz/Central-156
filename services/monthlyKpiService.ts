@@ -450,8 +450,9 @@ export const fetchMonthKpis = async (
   usingFallbackTable: boolean;
 }> => {
   const key = getCompetenciaKey(ano, mes);
+  const isAdminUser = Boolean(options?.isAdmin);
 
-  if (!options?.forceRefresh && monthMemoryCache.has(key)) {
+  if (!options?.forceRefresh && isAdminUser && monthMemoryCache.has(key)) {
     return {
       data: monthMemoryCache.get(key)!,
       error: null,
@@ -460,6 +461,9 @@ export const fetchMonthKpis = async (
   }
 
   if (!supabase) {
+    if (!isAdminUser) {
+      return { data: [], error: null, usingFallbackTable: true };
+    }
     const seed = loadLocalMonthCache(ano, mes) || getInitialSeedForMonth(ano, mes);
     saveLocalMonthCache(ano, mes, seed);
     return { data: seed, error: null, usingFallbackTable: true };
@@ -478,12 +482,12 @@ export const fetchMonthKpis = async (
       tableExistsState = 'exists';
 
       // Se a tabela existe mas este mês da planilha inicial ainda não foi populado no banco,
-      // fazemos o Batch Upsert automático da base inicial para este mês
+      // fazemos o Batch Upsert automático da base inicial para este mês (apenas Supervisor)
       if (data.length === 0) {
         const seedRows = getInitialSeedForMonth(ano, mes);
         const alreadyCleared = localStorage.getItem(`${LOCAL_CACHE_PREFIX}cleared_${key}`) === '1';
 
-        if (seedRows.length > 0 && !alreadyCleared && options?.isAdmin) {
+        if (seedRows.length > 0 && !alreadyCleared && isAdminUser) {
           const payload = seedRows.map(({ id, ...rest }) => rest);
           const { data: inserted, error: seedErr } = await supabase
             .from('monthly_kpis')
@@ -499,14 +503,16 @@ export const fetchMonthKpis = async (
           }
         }
 
-        if (seedRows.length > 0 && !alreadyCleared) {
+        if (seedRows.length > 0 && !alreadyCleared && isAdminUser) {
           saveLocalMonthCache(ano, mes, seedRows);
           return { data: seedRows, error: null, usingFallbackTable: false };
         }
       }
 
       const records = data as MonthlyKpiRecord[];
-      saveLocalMonthCache(ano, mes, records);
+      if (isAdminUser) {
+        saveLocalMonthCache(ano, mes, records);
+      }
       return { data: records, error: null, usingFallbackTable: false };
     }
 
@@ -516,6 +522,9 @@ export const fetchMonthKpis = async (
       console.warn('[MonthlyKpiService] Tabela public.monthly_kpis ainda não criada no Supabase. Usando persistência Cloud por competência em public.config.');
     } else if (error) {
       console.error('[MonthlyKpiService] Erro ao buscar KPIs do mês:', error);
+      if (!isAdminUser) {
+        return { data: [], error: error.message, usingFallbackTable: false };
+      }
       const cached = loadLocalMonthCache(ano, mes) || getInitialSeedForMonth(ano, mes);
       return { data: cached, error: error.message, usingFallbackTable: false };
     }
@@ -523,6 +532,10 @@ export const fetchMonthKpis = async (
 
   // 2. Fallback Cloud no Supabase via public.config (filtrado Server-Side pela chave do mês)
   try {
+    if (!isAdminUser) {
+      return { data: [], error: null, usingFallbackTable: true };
+    }
+
     const cfgKey = getConfigFallbackKey(ano, mes);
     const { data: cfgData, error: cfgError } = await supabase
       .from('config')
@@ -544,12 +557,15 @@ export const fetchMonthKpis = async (
 
     // Se ainda não está gravado no Supabase config e existe na planilha inicial anexada, sincroniza automaticamente
     const seedRows = getInitialSeedForMonth(ano, mes);
-    if (seedRows.length > 0 && options?.isAdmin) {
+    if (seedRows.length > 0 && isAdminUser) {
       await supabase.from('config').upsert({ key: cfgKey, value: seedRows });
     }
     saveLocalMonthCache(ano, mes, seedRows);
     return { data: seedRows, error: null, usingFallbackTable: true };
   } catch (e: any) {
+    if (!isAdminUser) {
+      return { data: [], error: e.message || 'Erro de conexão', usingFallbackTable: true };
+    }
     const seedRows = loadLocalMonthCache(ano, mes) || getInitialSeedForMonth(ano, mes);
     return { data: seedRows, error: e.message || 'Erro de conexão', usingFallbackTable: true };
   }
@@ -823,41 +839,64 @@ export const batchUpsertMonthKpis = async (
  */
 export const fetchOperatorMonthlyHistory = async (
   supabase: SupabaseClient | null,
-  operadorChave: string
+  operadorChave: string,
+  matricula?: string | null,
+  options?: { forceRefresh?: boolean }
 ): Promise<{ data: MonthlyKpiRecord[]; error: string | null }> => {
-  if (operatorHistoryMemoryCache.has(operadorChave)) {
-    return { data: operatorHistoryMemoryCache.get(operadorChave)!, error: null };
+  const cleanMat = matricula ? String(matricula).trim() : '';
+  const cacheKey = cleanMat ? `${operadorChave}::${cleanMat}` : operadorChave;
+
+  if (!options?.forceRefresh && operatorHistoryMemoryCache.has(cacheKey)) {
+    return { data: operatorHistoryMemoryCache.get(cacheKey)!, error: null };
   }
 
   if (supabase && tableExistsState !== 'missing') {
-    const { data, error } = await supabase
+    const safeKey = String(operadorChave || '').replace(/[,()]/g, '').trim();
+    const safeMat = cleanMat.replace(/[,()]/g, '').trim();
+
+    let query = supabase
       .from('monthly_kpis')
-      .select(MONTHLY_KPI_COLS)
-      .eq('operador_chave', operadorChave)
+      .select(MONTHLY_KPI_COLS);
+
+    if (safeKey && safeMat) {
+      query = query.or(`operador_chave.eq.${safeKey},matricula.eq.${safeMat}`);
+    } else if (safeMat) {
+      query = query.eq('matricula', safeMat);
+    } else {
+      query = query.eq('operador_chave', safeKey);
+    }
+
+    const { data, error } = await query
       .order('ano', { ascending: true })
       .order('mes', { ascending: true });
 
-    if (!error && data && data.length > 0) {
+    if (!error && data) {
+      tableExistsState = 'exists';
       const list = data as MonthlyKpiRecord[];
-      operatorHistoryMemoryCache.set(operadorChave, list);
+      operatorHistoryMemoryCache.set(cacheKey, list);
       return { data: list, error: null };
     }
 
-    if (error && error.code !== 'PGRST205' && error.code !== '42P01') {
+    if (error && (error.code === 'PGRST205' || error.code === '42P01' || error.message?.includes('monthly_kpis'))) {
+      tableExistsState = 'missing';
+    } else if (error) {
       console.error('[MonthlyKpiService] Erro ao buscar histórico do operador:', error);
     }
   }
 
-  // Combina registros do cache em memória + seed inicial para o operador_chave
+  // Combina registros do cache em memória + seed inicial para o operador_chave / matrícula
   const byComp = new Map<string, MonthlyKpiRecord>();
   for (const r of INITIAL_MONTHLY_KPIS) {
-    if (r.operador_chave === operadorChave) {
+    const matchesMat = Boolean(cleanMat && r.matricula && String(r.matricula).trim() === cleanMat);
+    if (r.operador_chave === operadorChave || matchesMat) {
       byComp.set(getCompetenciaKey(r.ano, r.mes), r);
     }
   }
 
   for (const [compKey, monthList] of monthMemoryCache.entries()) {
-    const found = monthList.find(r => r.operador_chave === operadorChave);
+    const found = monthList.find(
+      r => r.operador_chave === operadorChave || (cleanMat && r.matricula && String(r.matricula).trim() === cleanMat)
+    );
     if (found) {
       byComp.set(compKey, found);
     } else {
@@ -869,7 +908,7 @@ export const fetchOperatorMonthlyHistory = async (
     a.ano !== b.ano ? a.ano - b.ano : a.mes - b.mes
   );
 
-  operatorHistoryMemoryCache.set(operadorChave, history);
+  operatorHistoryMemoryCache.set(cacheKey, history);
   return { data: history, error: null };
 };
 
@@ -881,9 +920,11 @@ export const fetchOperatorMonthlyHistory = async (
 export const fetchYearKpis = async (
   supabase: SupabaseClient | null,
   ano: number,
-  options?: { forceRefresh?: boolean }
+  options?: { forceRefresh?: boolean; isAdmin?: boolean }
 ): Promise<{ data: MonthlyKpiRecord[]; error: string | null }> => {
-  if (!options?.forceRefresh && yearMemoryCache.has(ano)) {
+  const isAdminUser = Boolean(options?.isAdmin);
+
+  if (!options?.forceRefresh && isAdminUser && yearMemoryCache.has(ano)) {
     return { data: yearMemoryCache.get(ano)!, error: null };
   }
 
@@ -909,7 +950,7 @@ export const fetchYearKpis = async (
     }
   }
 
-  if (supabase && tableExistsState === 'missing') {
+  if (supabase && tableExistsState === 'missing' && isAdminUser) {
     try {
       const { data: cfgRows } = await supabase
         .from('config')
@@ -935,9 +976,11 @@ export const fetchYearKpis = async (
     const key = getCompetenciaKey(ano, m);
     if (byMonth.has(m)) {
       const monthRows = byMonth.get(m)!;
-      saveLocalMonthCache(ano, m, monthRows);
+      if (isAdminUser) {
+        saveLocalMonthCache(ano, m, monthRows);
+      }
       allRecords.push(...monthRows);
-    } else {
+    } else if (isAdminUser) {
       const alreadyCleared = typeof localStorage !== 'undefined' && localStorage.getItem(`${LOCAL_CACHE_PREFIX}cleared_${key}`) === '1';
       if (alreadyCleared) continue;
       const fallback = loadLocalMonthCache(ano, m) || getInitialSeedForMonth(ano, m);
@@ -945,7 +988,9 @@ export const fetchYearKpis = async (
     }
   }
 
-  yearMemoryCache.set(ano, allRecords);
+  if (isAdminUser) {
+    yearMemoryCache.set(ano, allRecords);
+  }
   return { data: allRecords, error: null };
 };
 

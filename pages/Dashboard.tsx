@@ -7,7 +7,12 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Calendar,
-  Filter
+  Filter,
+  Target,
+  MessageSquare,
+  FileText,
+  TrendingUp,
+  ArrowRight
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Operator, TeamGoals, OperatorClassification } from '../types';
@@ -19,11 +24,19 @@ import {
   MONTHLY_KPIS_UPDATED_EVENT
 } from '../services/monthlyKpiService';
 import { useAuth } from '../AuthContext';
-import { calculateAverageKPIs, getStatusColor, formatDecimal, tmaToSeconds } from '../utils';
+import { calculateAverageKPIs, getStatusColor, formatDecimal, tmaToSeconds, getLatestKPIsPerMonth } from '../utils';
 import { MONTHS } from '../constants';
 
-const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '', onClick }: any) => {
-  const statusColor = getStatusColor(value, goal, title === 'TMA Médio' ? 'lower' : 'higher');
+const normalizeText = (value?: string | null) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '', onClick, tooltip }: any) => {
+  const isTmaCard = title === 'TMA Médio' || title === 'Meu TMA';
+  const statusColor = getStatusColor(value, goal, isTmaCard ? 'lower' : 'higher');
   const isSuccess = statusColor === 'text-green-600';
 
   const colorVariants: Record<string, { bg: string; text: string; ring: string }> = {
@@ -41,7 +54,7 @@ const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '',
       className={`relative overflow-hidden bg-white rounded-2xl p-6 shadow-sm border border-slate-200/80 hover:shadow-lg hover:border-slate-300 transition-all duration-300 group ${
         onClick ? 'cursor-pointer hover:-translate-y-0.5' : ''
       }`}
-      title={onClick ? 'Clique para visualizar e ordenar na tela de Indicadores' : undefined}
+      title={onClick ? (tooltip || 'Clique para visualizar e ordenar na tela de Indicadores') : undefined}
     >
       <div className={`absolute top-0 left-0 right-0 h-1 ${isSuccess ? 'bg-emerald-500' : goal ? 'bg-amber-500' : 'bg-blue-500'}`} />
 
@@ -99,7 +112,7 @@ const StatCard = ({ title, value, subtitle, icon, trend, color, goal, unit = '',
 
 const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ operators, goals }) => {
   const navigate = useNavigate();
-  const { supabase, isAdmin } = useAuth();
+  const { supabase, isAdmin, userProfile, user } = useAuth();
   const currentDate = new Date();
   const [selectedMonth, setSelectedMonth] = useState(String(currentDate.getMonth() + 1));
   const [selectedYear, setSelectedYear] = useState(String(currentDate.getFullYear()));
@@ -114,6 +127,47 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
     window.addEventListener(MONTHLY_KPIS_UPDATED_EVENT, handleUpdated);
     return () => window.removeEventListener(MONTHLY_KPIS_UPDATED_EVENT, handleUpdated);
   }, []);
+
+  // Identifica exclusivamente o operador logado quando !isAdmin
+  const myOperator = useMemo(() => {
+    if (isAdmin) return undefined;
+    const cleanReg = userProfile?.registration ? String(userProfile.registration).trim() : '';
+    if (cleanReg && cleanReg !== 'SUPERVISOR') {
+      const byReg = operators.find(o => String(o.registration || '').trim() === cleanReg);
+      if (byReg) return byReg;
+    }
+    if (user?.id) {
+      const byUid = operators.find(o => o.user_id === user.id);
+      if (byUid) return byUid;
+    }
+    if (operators.length === 1) return operators[0];
+    if (userProfile && userProfile.registration !== 'SUPERVISOR') return userProfile;
+    return undefined;
+  }, [isAdmin, operators, userProfile, user?.id]);
+
+  const myIdentity = useMemo(() => {
+    if (!myOperator) return null;
+    const reg = String(myOperator.registration || '').trim();
+    const canonical = resolveCanonicalOperator(myOperator.name, reg);
+    return {
+      reg,
+      chave: canonical.operador_chave,
+      normName: normalizeText(myOperator.name),
+      normCanonical: normalizeText(canonical.operador_nome)
+    };
+  }, [myOperator]);
+
+  const isRecordMine = (rec: MonthlyKpiRecord) => {
+    if (isAdmin) return true;
+    if (!myIdentity) return false;
+    const recMat = rec.matricula ? String(rec.matricula).trim() : '';
+    if (myIdentity.reg && recMat && recMat === myIdentity.reg) return true;
+    if (myIdentity.chave && rec.operador_chave === myIdentity.chave) return true;
+    if (myIdentity.reg && rec.operador_chave === myIdentity.reg) return true;
+    const recName = normalizeText(rec.operador_nome);
+    if (recName && (recName === myIdentity.normName || recName === myIdentity.normCanonical)) return true;
+    return false;
+  };
 
   // Carrega o Snapshot Mensal do período selecionado
   useEffect(() => {
@@ -134,7 +188,10 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
   // Carrega o histórico real de todos os meses do ano selecionado (reflete Excel/edições manuais)
   useEffect(() => {
     let cancelled = false;
-    fetchYearKpis(supabase, Number(selectedYear), { forceRefresh: refreshTick > 0 }).then(({ data }) => {
+    fetchYearKpis(supabase, Number(selectedYear), {
+      isAdmin,
+      forceRefresh: refreshTick > 0
+    }).then(({ data }) => {
       if (!cancelled) {
         setYearRecords(data || []);
       }
@@ -142,7 +199,7 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
     return () => {
       cancelled = true;
     };
-  }, [supabase, selectedYear, operators, refreshTick]);
+  }, [supabase, isAdmin, selectedYear, operators, refreshTick]);
 
   // Mapa de operadores cadastrados na Equipe (por matrícula e por chave canônica)
   const operatorLookup = useMemo(() => {
@@ -157,8 +214,36 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
     return { byReg, byKey };
   }, [operators]);
 
-  // Filtra APENAS os operadores ATIVOS no Snapshot Mensal e na Gestão de Equipe
+  // Para Supervisor: filtra operadores ATIVOS. Para Operador: APENAS seu próprio registro.
   const activeSnapshotOperators = useMemo(() => {
+    if (!isAdmin) {
+      const mine = snapshotRecords.filter(isRecordMine);
+      if (mine.length > 0) return mine;
+
+      const targetKey = `${selectedYear}-${selectedMonth.padStart(2, '0')}`;
+      const ownLatestKpis = getLatestKPIsPerMonth(myOperator?.kpis || []);
+      const fallbackKpi = ownLatestKpis.find(k => k.month === targetKey);
+      if (fallbackKpi && myOperator) {
+        const canonical = resolveCanonicalOperator(myOperator.name, myOperator.registration);
+        return [
+          {
+            ano: Number(selectedYear),
+            mes: Number(selectedMonth),
+            operador_chave: canonical.operador_chave,
+            operador_nome: myOperator.name,
+            matricula: myOperator.registration,
+            tma: fallbackKpi.tma || null,
+            tma_segundos: fallbackKpi.tma ? tmaToSeconds(fallbackKpi.tma) : null,
+            nps: fallbackKpi.nps ?? null,
+            monitoria: fallbackKpi.monitoria ?? null,
+            abs: fallbackKpi.abs ?? null,
+            status_mes: myOperator.active !== false ? 'Ativo' : 'Desligado'
+          } as MonthlyKpiRecord
+        ];
+      }
+      return [];
+    }
+
     const nowYear = new Date().getFullYear();
     const nowMonth = new Date().getMonth() + 1;
     const isCurrentCompetencia = Number(selectedYear) === nowYear && Number(selectedMonth) === nowMonth;
@@ -190,9 +275,9 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
 
       return true;
     });
-  }, [snapshotRecords, operatorLookup, selectedClassification, selectedYear, selectedMonth]);
+  }, [isAdmin, snapshotRecords, operatorLookup, selectedClassification, selectedYear, selectedMonth, myOperator, myIdentity]);
 
-  // KPIs do período selecionado (apenas de operadores ativos)
+  // KPIs do período selecionado
   const currentPeriodKPIs = useMemo(() => {
     const targetKey = `${selectedYear}-${selectedMonth.padStart(2, '0')}`;
     return activeSnapshotOperators.map((rec, idx) => ({
@@ -217,14 +302,44 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
     return calculateAverageKPIs(currentPeriodKPIs);
   }, [currentPeriodKPIs]);
 
-  // Dados do gráfico: evolução de todos os meses do ano selecionado (considerando apenas operadores ativos em cada mês)
+  // Dados do gráfico: evolução de todos os meses do ano selecionado
   const chartData = useMemo(() => {
+    const ownLatestKpis = !isAdmin ? getLatestKPIsPerMonth(myOperator?.kpis || []) : [];
     const nowYear = new Date().getFullYear();
     const nowMonth = new Date().getMonth() + 1;
 
     return MONTHS.map((monthName, index) => {
       const monthNum = index + 1;
       const isSelectedM = monthNum === Number(selectedMonth);
+
+      if (!isAdmin) {
+        const mineInMonth = isSelectedM
+          ? activeSnapshotOperators
+          : yearRecords.filter(r => r.mes === monthNum && isRecordMine(r));
+
+        const monthKey = `${selectedYear}-${String(monthNum).padStart(2, '0')}`;
+        const kpiSource =
+          mineInMonth.length > 0
+            ? mineInMonth.map((r, i) => ({
+                id: `${monthNum}_${i}`,
+                month: monthKey,
+                tma: r.tma,
+                nps: r.nps,
+                monitoria: r.monitoria
+              }))
+            : ownLatestKpis.filter(k => k.month === monthKey);
+
+        const stats = calculateAverageKPIs(kpiSource);
+        const tmaSeconds = stats.tma ? tmaToSeconds(stats.tma) : 0;
+        return {
+          name: monthName,
+          NPS: stats.nps,
+          Monitoria: stats.monitoria,
+          TMA: tmaSeconds,
+          tmaFormatted: stats.tma || '00:00:00'
+        };
+      }
+
       const isCurrentCompetencia = Number(selectedYear) === nowYear && monthNum === nowMonth;
 
       const sourceRows = isSelectedM
@@ -270,9 +385,10 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
         tmaFormatted: stats.tma || '00:00:00'
       };
     });
-  }, [activeSnapshotOperators, yearRecords, selectedMonth, selectedYear, operatorLookup, selectedClassification]);
+  }, [isAdmin, activeSnapshotOperators, yearRecords, selectedMonth, selectedYear, operatorLookup, selectedClassification, myOperator, myIdentity]);
 
   const topPerformers = useMemo(() => {
+    if (!isAdmin) return [];
     return activeSnapshotOperators
       .map(rec => {
         const linkedOp =
@@ -298,7 +414,12 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
       .filter(Boolean)
       .sort((a: any, b: any) => Number(b.score) - Number(a.score))
       .slice(0, 5);
-  }, [activeSnapshotOperators, operatorLookup]);
+  }, [isAdmin, activeSnapshotOperators, operatorLookup]);
+
+  const myFeedbacksCount = myOperator?.feedbacks?.length || 0;
+  const myPendingFeedbacksCount = (myOperator?.feedbacks || []).filter(f => !f.operatorResponse).length;
+  const myDocsCount = myOperator?.documents?.length || 0;
+  const myCurrentSnapshot = !isAdmin ? activeSnapshotOperators[0] : undefined;
 
   const years = Array.from({ length: 5 }, (_, i) => String(new Date().getFullYear() - i));
 
@@ -307,9 +428,13 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-200/60">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Visão Geral da Operação</h1>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+            {isAdmin ? 'Visão Geral da Operação' : 'Meu Painel de Desempenho'}
+          </h1>
           <p className="text-slate-500 text-sm mt-1">
-            Acompanhamento dos operadores ativos em {MONTHS[Number(selectedMonth) - 1]}/{selectedYear}
+            {isAdmin
+              ? `Acompanhamento dos operadores ativos em ${MONTHS[Number(selectedMonth) - 1]}/${selectedYear}`
+              : `${myOperator?.name || userProfile?.name || 'Operador'} • Seus indicadores individuais em ${MONTHS[Number(selectedMonth) - 1]}/${selectedYear}`}
           </p>
         </div>
 
@@ -341,56 +466,108 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
               </option>
             ))}
           </select>
-          <div className="w-px h-5 bg-slate-200" />
-          <select
-            className="bg-transparent text-xs sm:text-sm font-semibold text-slate-700 outline-none cursor-pointer px-2 py-1.5 hover:bg-slate-50 rounded-lg transition-colors"
-            value={selectedClassification}
-            onChange={e => setSelectedClassification(e.target.value as any)}
-          >
-            <option value="all">Todas Atribuições</option>
-            <option value={OperatorClassification.SMF}>SMF</option>
-            <option value={OperatorClassification.OUTROS}>Outros</option>
-          </select>
+          {isAdmin && (
+            <>
+              <div className="w-px h-5 bg-slate-200" />
+              <select
+                className="bg-transparent text-xs sm:text-sm font-semibold text-slate-700 outline-none cursor-pointer px-2 py-1.5 hover:bg-slate-50 rounded-lg transition-colors"
+                value={selectedClassification}
+                onChange={e => setSelectedClassification(e.target.value as any)}
+              >
+                <option value="all">Todas Atribuições</option>
+                <option value={OperatorClassification.SMF}>SMF</option>
+                <option value={OperatorClassification.OUTROS}>Outros</option>
+              </select>
+            </>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard
-          title="Operadores Ativos no Mês"
-          value={operatorsWithKPIs}
-          subtitle={`Ativos em ${MONTHS[Number(selectedMonth) - 1]}/${selectedYear} • Clique p/ ordenar`}
-          icon={<Calendar size={24} />}
-          color="blue"
-          onClick={() => navigate('/indicators?sort=name&dir=asc')}
-        />
-        <StatCard
-          title="TMA Médio"
-          value={teamStats.tma}
-          goal={goals.tma}
-          subtitle="Média dos ativos • Clique p/ ordenar"
-          icon={<Clock size={24} />}
-          color="indigo"
-          onClick={() => navigate('/indicators?sort=tma&dir=desc')}
-        />
-        <StatCard
-          title="NPS Geral"
-          value={teamStats.nps}
-          goal={goals.nps}
-          subtitle="Satisfação dos ativos • Clique p/ ordenar"
-          icon={<Heart size={24} />}
-          color="rose"
-          onClick={() => navigate('/indicators?sort=nps&dir=desc')}
-        />
-        <StatCard
-          title="Monitoria"
-          value={teamStats.monitoria}
-          goal={goals.monitoria}
-          subtitle="Qualidade dos ativos • Clique p/ ordenar"
-          icon={<CheckCircle size={24} />}
-          color="emerald"
-          onClick={() => navigate('/indicators?sort=monitoria&dir=desc')}
-        />
-      </div>
+      {isAdmin ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <StatCard
+            title="Operadores Ativos no Mês"
+            value={operatorsWithKPIs}
+            subtitle={`Ativos em ${MONTHS[Number(selectedMonth) - 1]}/${selectedYear} • Clique p/ ordenar`}
+            icon={<Calendar size={24} />}
+            color="blue"
+            onClick={() => navigate('/indicators?sort=name&dir=asc')}
+          />
+          <StatCard
+            title="TMA Médio"
+            value={teamStats.tma}
+            goal={goals.tma}
+            subtitle="Média dos ativos • Clique p/ ordenar"
+            icon={<Clock size={24} />}
+            color="indigo"
+            onClick={() => navigate('/indicators?sort=tma&dir=desc')}
+          />
+          <StatCard
+            title="NPS Geral"
+            value={teamStats.nps}
+            goal={goals.nps}
+            subtitle="Satisfação dos ativos • Clique p/ ordenar"
+            icon={<Heart size={24} />}
+            color="rose"
+            onClick={() => navigate('/indicators?sort=nps&dir=desc')}
+          />
+          <StatCard
+            title="Monitoria"
+            value={teamStats.monitoria}
+            goal={goals.monitoria}
+            subtitle="Qualidade dos ativos • Clique p/ ordenar"
+            icon={<CheckCircle size={24} />}
+            color="emerald"
+            onClick={() => navigate('/indicators?sort=monitoria&dir=desc')}
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <StatCard
+            title="Meu TMA"
+            value={teamStats.tma}
+            goal={goals.tma}
+            subtitle={myCurrentSnapshot ? `Competência ${MONTHS[Number(selectedMonth) - 1]}/${selectedYear} • Ver histórico` : 'Sem lançamento no mês • Ver histórico'}
+            tooltip="Clique para abrir Meus Indicadores"
+            icon={<Clock size={24} />}
+            color="indigo"
+            onClick={() => navigate('/my-profile')}
+          />
+          <StatCard
+            title="Meu NPS"
+            value={teamStats.nps}
+            goal={goals.nps}
+            subtitle="Sua nota de satisfação • Ver histórico"
+            tooltip="Clique para abrir Meus Indicadores"
+            icon={<Heart size={24} />}
+            color="rose"
+            onClick={() => navigate('/my-profile')}
+          />
+          <StatCard
+            title="Minha Monitoria"
+            value={teamStats.monitoria}
+            goal={goals.monitoria}
+            subtitle="Sua nota de qualidade • Ver histórico"
+            tooltip="Clique para abrir Meus Indicadores"
+            icon={<CheckCircle size={24} />}
+            color="emerald"
+            onClick={() => navigate('/my-profile')}
+          />
+          <StatCard
+            title="Meus Feedbacks"
+            value={myFeedbacksCount}
+            subtitle={
+              myPendingFeedbacksCount > 0
+                ? `${myPendingFeedbacksCount} aguardando sua resposta • Clique p/ abrir`
+                : `${myDocsCount} documento(s) anexado(s) • Clique p/ abrir`
+            }
+            tooltip="Clique para abrir seus Feedbacks"
+            icon={<MessageSquare size={24} />}
+            color="blue"
+            onClick={() => navigate('/my-profile?tab=feedback')}
+          />
+        </div>
+      )}
 
       {/* Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -399,9 +576,13 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div>
               <h2 className="font-extrabold text-lg text-slate-900 tracking-tight">
-                Evolução dos Indicadores em {selectedYear}
+                {isAdmin ? `Evolução dos Indicadores em ${selectedYear}` : `Minha Evolução em ${selectedYear}`}
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">Histórico consolidado mês a mês (Operadores Ativos)</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {isAdmin
+                  ? 'Histórico consolidado mês a mês (Operadores Ativos)'
+                  : 'Histórico individual mês a mês dos seus indicadores'}
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-600">
               <div className="flex items-center gap-1.5">
@@ -459,79 +640,174 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
           </div>
         </div>
 
-        {/* Top 5 Ranking */}
-        <div className="bg-white p-6 sm:p-7 rounded-2xl shadow-sm border border-slate-200/80 hover:shadow-md transition-all duration-300">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="font-extrabold text-lg text-slate-900 tracking-tight">Destaques da Equipe</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {MONTHS[Number(selectedMonth) - 1]} / {selectedYear} (Apenas Ativos)
-              </p>
-            </div>
-            <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200/60">
-              Top 5
-            </span>
-          </div>
-
-          <div className="space-y-2.5">
-            {topPerformers.length === 0 ? (
-              <div className="text-center py-12 text-slate-400 text-sm">
-                Nenhum operador ativo com lançamento para este período.
+        {isAdmin ? (
+          /* Top 5 Ranking (Exclusivo Supervisor) */
+          <div className="bg-white p-6 sm:p-7 rounded-2xl shadow-sm border border-slate-200/80 hover:shadow-md transition-all duration-300">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="font-extrabold text-lg text-slate-900 tracking-tight">Destaques da Equipe</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {MONTHS[Number(selectedMonth) - 1]} / {selectedYear} (Apenas Ativos)
+                </p>
               </div>
-            ) : (
-              topPerformers.map((op: any, index: number) => (
-                <div
-                  key={op.name}
-                  className="flex items-center gap-3 p-3 rounded-xl bg-slate-50/70 border border-slate-100 hover:bg-slate-100/80 hover:border-slate-200/80 transition-all group"
-                >
+              <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200/60">
+                Top 5
+              </span>
+            </div>
+
+            <div className="space-y-2.5">
+              {topPerformers.length === 0 ? (
+                <div className="text-center py-12 text-slate-400 text-sm">
+                  Nenhum operador ativo com lançamento para este período.
+                </div>
+              ) : (
+                topPerformers.map((op: any, index: number) => (
                   <div
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center font-extrabold text-xs shrink-0 ${
-                      index === 0
-                        ? 'bg-amber-400 text-amber-950 shadow-sm shadow-amber-400/30'
-                        : index === 1
-                        ? 'bg-slate-300 text-slate-800'
-                        : index === 2
-                        ? 'bg-amber-700 text-amber-100'
-                        : 'bg-slate-200 text-slate-600'
-                    }`}
+                    key={op.name}
+                    className="flex items-center gap-3 p-3 rounded-xl bg-slate-50/70 border border-slate-100 hover:bg-slate-100/80 hover:border-slate-200/80 transition-all group"
                   >
-                    {index + 1}
-                  </div>
+                    <div
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center font-extrabold text-xs shrink-0 ${
+                        index === 0
+                          ? 'bg-amber-400 text-amber-950 shadow-sm shadow-amber-400/30'
+                          : index === 1
+                          ? 'bg-slate-300 text-slate-800'
+                          : index === 2
+                          ? 'bg-amber-700 text-amber-100'
+                          : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {index + 1}
+                    </div>
 
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-xs overflow-hidden shrink-0 shadow-sm">
-                    {op.photoUrl ? (
-                      <img src={op.photoUrl} alt={op.name} className="w-full h-full object-cover" />
-                    ) : (
-                      op.name.charAt(0)
-                    )}
-                  </div>
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-500 to-indigo-600 text-white flex items-center justify-center font-bold text-xs overflow-hidden shrink-0 shadow-sm">
+                      {op.photoUrl ? (
+                        <img src={op.photoUrl} alt={op.name} className="w-full h-full object-cover" />
+                      ) : (
+                        op.name.charAt(0)
+                      )}
+                    </div>
 
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">
-                      {op.name}
-                    </p>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-amber-100/70 text-amber-800">
-                        ⏱ {op.tma}
-                      </span>
-                      <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-emerald-100/70 text-emerald-800">
-                        ✓ {formatDecimal(op.monitoria)}
-                      </span>
-                      <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-blue-100/70 text-blue-800">
-                        ♥ {formatDecimal(op.nps)}
-                      </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">
+                        {op.name}
+                      </p>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-amber-100/70 text-amber-800">
+                          ⏱ {op.tma}
+                        </span>
+                        <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-emerald-100/70 text-emerald-800">
+                          ✓ {formatDecimal(op.monitoria)}
+                        </span>
+                        <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-blue-100/70 text-blue-800">
+                          ♥ {formatDecimal(op.nps)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0 pl-1">
+                      <span className="text-base font-extrabold text-slate-900">{formatDecimal(op.score)}</span>
+                      <p className="text-[9px] text-slate-400 font-semibold uppercase">Média</p>
                     </div>
                   </div>
-
-                  <div className="text-right shrink-0 pl-1">
-                    <span className="text-base font-extrabold text-slate-900">{formatDecimal(op.score)}</span>
-                    <p className="text-[9px] text-slate-400 font-semibold uppercase">Média</p>
-                  </div>
-                </div>
-              ))
-            )}
+                ))
+              )}
+            </div>
           </div>
-        </div>
+        ) : (
+          /* Portal Individual do Operador (sem dados ou ranking da equipe) */
+          <div className="bg-white p-6 sm:p-7 rounded-2xl shadow-sm border border-slate-200/80 hover:shadow-md transition-all duration-300 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h2 className="font-extrabold text-lg text-slate-900 tracking-tight">Meu Espaço</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Acesso exclusivo aos seus registros
+                  </p>
+                </div>
+                {myOperator?.registration && (
+                  <span className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200/60">
+                    #{myOperator.registration}
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <button
+                  onClick={() => navigate('/my-profile')}
+                  className="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-50 hover:bg-blue-50/70 border border-slate-100 hover:border-blue-200 transition-all text-left group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-blue-100 text-blue-600">
+                      <TrendingUp size={17} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-800 group-hover:text-blue-700">Meus Indicadores</p>
+                      <p className="text-[11px] text-slate-500">Histórico mensal de TMA, NPS e Monitoria</p>
+                    </div>
+                  </div>
+                  <ArrowRight size={15} className="text-slate-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all" />
+                </button>
+
+                <button
+                  onClick={() => navigate('/my-pdi')}
+                  className="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-50 hover:bg-indigo-50/70 border border-slate-100 hover:border-indigo-200 transition-all text-left group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-indigo-100 text-indigo-600">
+                      <Target size={17} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-800 group-hover:text-indigo-700">Meu PDI 360°</p>
+                      <p className="text-[11px] text-slate-500">Objetivos, ações e competências</p>
+                    </div>
+                  </div>
+                  <ArrowRight size={15} className="text-slate-400 group-hover:text-indigo-600 group-hover:translate-x-0.5 transition-all" />
+                </button>
+
+                <button
+                  onClick={() => navigate('/my-profile?tab=feedback')}
+                  className="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-50 hover:bg-emerald-50/70 border border-slate-100 hover:border-emerald-200 transition-all text-left group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-emerald-100 text-emerald-600">
+                      <MessageSquare size={17} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-800 group-hover:text-emerald-700">
+                        Meus Feedbacks ({myFeedbacksCount})
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        {myPendingFeedbacksCount > 0
+                          ? `${myPendingFeedbacksCount} pendente(s) de ciência`
+                          : 'Orientações e alinhamentos individuais'}
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowRight size={15} className="text-slate-400 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition-all" />
+                </button>
+
+                <button
+                  onClick={() => navigate('/my-profile?tab=documents')}
+                  className="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-50 hover:bg-amber-50/70 border border-slate-100 hover:border-amber-200 transition-all text-left group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-amber-100 text-amber-600">
+                      <FileText size={17} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-800 group-hover:text-amber-700">
+                        Meus Documentos ({myDocsCount})
+                      </p>
+                      <p className="text-[11px] text-slate-500">Atestados, declarações e anexos</p>
+                    </div>
+                  </div>
+                  <ArrowRight size={15} className="text-slate-400 group-hover:text-amber-600 group-hover:translate-x-0.5 transition-all" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

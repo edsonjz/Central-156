@@ -571,7 +571,7 @@ const AppContent: React.FC = () => {
               <>
                 <Route path="/my-pdi" element={<MyPdi operators={operators} />} />
                 <Route path="/my-profile" element={<OperatorDetail operators={operators} onUpdate={handleUpdateOperators} onSaveOperator={handleSaveOperator} userRole={userRole!} goals={goals} isDataLoading={isDataLoading} />} />
-                <Route path="/operator/:id" element={<OperatorDetail operators={operators} onUpdate={handleUpdateOperators} onSaveOperator={handleSaveOperator} userRole={userRole!} goals={goals} isDataLoading={isDataLoading} />} />
+                <Route path="/operator/:id" element={<Navigate to="/my-profile" replace />} />
               </>
             )}
 

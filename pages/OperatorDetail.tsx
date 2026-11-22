@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Calendar,
@@ -31,6 +31,7 @@ import {
   Target
 } from 'lucide-react';
 import { Operator, Role, KPI, Feedback, TeamGoals, OperatorClassification } from '../types';
+import { MonthlyKpiRecord } from '../types/monthlyKpi';
 import { calculateAverageKPIs, getStatusColor, formatDecimal, generateSystemEmail, getLatestKPIsPerMonth, compressImage } from '../utils';
 import { useAuth } from '../AuthContext';
 import { MONTHS } from '../constants';
@@ -38,7 +39,9 @@ import {
   saveSingleMonthlyKpi,
   deleteMonthlyKpiRecord,
   fetchMonthKpis,
-  resolveCanonicalOperator
+  fetchOperatorMonthlyHistory,
+  resolveCanonicalOperator,
+  MONTHLY_KPIS_UPDATED_EVENT
 } from '../services/monthlyKpiService';
 
 interface OperatorDetailProps {
@@ -52,12 +55,17 @@ interface OperatorDetailProps {
 
 const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, onSaveOperator, userRole, goals, isDataLoading }) => {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { supabase, userProfile, user, createOperatorAccount } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
-  const [activeTab, setActiveTab] = useState<'kpis' | 'feedback' | 'documents'>('kpis');
+  const initialTabParam = searchParams.get('tab');
+  const resolvedInitialTab: 'kpis' | 'feedback' | 'documents' =
+    initialTabParam === 'feedback' || initialTabParam === 'documents' ? initialTabParam : 'kpis';
+
+  const [activeTab, setActiveTab] = useState<'kpis' | 'feedback' | 'documents'>(resolvedInitialTab);
   const [newFeedback, setNewFeedback] = useState('');
   const [modalKPI, setModalKPI] = useState(false);
   const [editingKPI, setEditingKPI] = useState<KPI | null>(null);
@@ -82,10 +90,26 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
   // Estado para rascunho de respostas de feedback (Key: FeedbackID, Value: Text)
   const [replyDrafts, setReplyDrafts] = useState<{ [key: string]: string }>({});
   const [documentsLoadedForReg, setDocumentsLoadedForReg] = useState<string | null>(null);
+  const [monthlyHistory, setMonthlyHistory] = useState<MonthlyKpiRecord[]>([]);
+  const [kpiRefreshTick, setKpiRefreshTick] = useState(0);
 
-  // Lógica de Seleção do Operador (Robustez Aprimorada com trim e fallback userProfile):
+  React.useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'kpis' || tabParam === 'feedback' || tabParam === 'documents') {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
+
+  React.useEffect(() => {
+    const handleUpdated = () => setKpiRefreshTick(t => t + 1);
+    window.addEventListener(MONTHLY_KPIS_UPDATED_EVENT, handleUpdated);
+    return () => window.removeEventListener(MONTHLY_KPIS_UPDATED_EVENT, handleUpdated);
+  }, []);
+
+  // Lógica de Seleção do Operador (Operadores só podem visualizar a própria ficha)
+  const isSupervisor = userRole === Role.SUPERVISOR;
   let operator: Operator | undefined = undefined;
-  const cleanId = id ? String(id).trim() : '';
+  const cleanId = isSupervisor && id ? String(id).trim() : '';
 
   if (cleanId) {
     operator = operators.find(o => String(o.registration).trim() === cleanId);
@@ -106,6 +130,26 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
   }
 
   const targetRegistration = operator?.registration ? String(operator.registration).trim() : cleanId;
+
+  // Carrega histórico mensal real da tabela monthly_kpis para sincronizar Excel/edições manuais na ficha
+  React.useEffect(() => {
+    if (!supabase || !operator?.name) {
+      setMonthlyHistory([]);
+      return;
+    }
+    let cancelled = false;
+    const canonical = resolveCanonicalOperator(operator.name, operator.registration);
+    fetchOperatorMonthlyHistory(supabase, canonical.operador_chave, operator.registration, {
+      forceRefresh: kpiRefreshTick > 0
+    }).then(({ data }) => {
+      if (!cancelled) {
+        setMonthlyHistory(data || []);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, operator?.name, operator?.registration, kpiRefreshTick]);
 
   // Carrega documentos sob demanda (lazy load) quando o perfil do operador é aberto
   React.useEffect(() => {
@@ -150,6 +194,53 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
     }
   }, [activeTab, userRole, operator?.feedbacks, targetRegistration]);
 
+  const mergedKpis = React.useMemo(() => {
+    const base = Array.isArray(operator?.kpis) ? [...operator.kpis] : [];
+    if (!monthlyHistory || monthlyHistory.length === 0) return base;
+
+    const byMonthExisting = new Map<string, KPI[]>();
+    for (const k of base) {
+      const arr = byMonthExisting.get(k.month) || [];
+      arr.push(k);
+      byMonthExisting.set(k.month, arr);
+    }
+
+    const result = [...base];
+    for (const rec of monthlyHistory) {
+      const monthKey = `${rec.ano}-${String(rec.mes).padStart(2, '0')}`;
+      const existingForMonth = byMonthExisting.get(monthKey) || [];
+      if (existingForMonth.length === 0) {
+        result.push({
+          id: `mk_${rec.ano}_${rec.mes}`,
+          month: monthKey,
+          tma: rec.tma || '00:00:00',
+          nps: rec.nps ?? 0,
+          monitoria: rec.monitoria ?? 0,
+          abs: rec.abs ?? undefined,
+          createdAt: rec.updated_at || rec.created_at || `${monthKey}-01T00:00:00.000Z`
+        });
+      } else {
+        const latestIdx = existingForMonth.reduce((bestIdx, cur, idx, list) => {
+          const tBest = list[bestIdx].createdAt ? new Date(list[bestIdx].createdAt!).getTime() : 0;
+          const tCur = cur.createdAt ? new Date(cur.createdAt).getTime() : 0;
+          return tCur >= tBest ? idx : bestIdx;
+        }, 0);
+        const targetId = existingForMonth[latestIdx].id;
+        const resIdx = result.findIndex(k => k.id === targetId);
+        if (resIdx >= 0) {
+          result[resIdx] = {
+            ...result[resIdx],
+            tma: rec.tma || result[resIdx].tma || '00:00:00',
+            nps: rec.nps ?? result[resIdx].nps ?? 0,
+            monitoria: rec.monitoria ?? result[resIdx].monitoria ?? 0,
+            abs: rec.abs ?? result[resIdx].abs
+          };
+        }
+      }
+    }
+    return result;
+  }, [operator?.kpis, monthlyHistory]);
+
   if (isDataLoading && !operator) {
     return (
       <div className="p-20 flex flex-col items-center justify-center space-y-4">
@@ -176,7 +267,7 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
     );
   }
 
-  const stats = calculateAverageKPIs(getLatestKPIsPerMonth(operator.kpis || []));
+  const stats = calculateAverageKPIs(getLatestKPIsPerMonth(mergedKpis));
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -333,11 +424,21 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
 
     let updatedKpis;
     if (editingKPI) {
-      updatedKpis = operator.kpis.map(k =>
-        k.id === editingKPI.id
-          ? { ...k, ...finalKPI }
-          : k
-      );
+      const existsInBase = operator.kpis.some(k => k.id === editingKPI.id);
+      updatedKpis = existsInBase
+        ? operator.kpis.map(k =>
+            k.id === editingKPI.id
+              ? { ...k, ...finalKPI }
+              : k
+          )
+        : [
+            ...operator.kpis,
+            {
+              id: Math.random().toString(),
+              ...finalKPI,
+              createdAt: editingKPI.createdAt || new Date().toISOString()
+            }
+          ];
     } else {
       const newKpi: KPI = {
         id: Math.random().toString(),
@@ -356,7 +457,9 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
     const mesNum = Number(mesStr);
     if (anoNum && mesNum) {
       const canonical = resolveCanonicalOperator(operator.name, operator.registration);
-      const { data: monthList } = await fetchMonthKpis(supabase, anoNum, mesNum);
+      const { data: monthList } = await fetchMonthKpis(supabase, anoNum, mesNum, {
+        isAdmin: userRole === Role.SUPERVISOR
+      });
       const existingSnap = (monthList || []).find(
         r =>
           r.operador_chave === canonical.operador_chave ||
@@ -388,7 +491,7 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
 
   const handleDeleteKPI = async (kpiId: string) => {
     if (window.confirm('Tem certeza que deseja excluir permanentemente este indicador de KPI?') && operator) {
-      const kpiToDelete = operator.kpis.find(k => k.id === kpiId);
+      const kpiToDelete = mergedKpis.find(k => k.id === kpiId);
       const remainingKpis = operator.kpis.filter(k => k.id !== kpiId);
       onSaveOperator({ ...operator, kpis: remainingKpis });
 
@@ -528,7 +631,7 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200/60">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => (isSupervisor ? navigate(-1) : navigate('/'))}
             className="p-2.5 bg-white border border-slate-200/80 rounded-xl hover:bg-slate-50 text-slate-600 transition-colors shadow-sm"
             title="Voltar"
           >
@@ -536,7 +639,7 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
           </button>
           <div>
             <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-              Ficha do Colaborador
+              {isSupervisor ? 'Ficha do Colaborador' : 'Meu Perfil & Indicadores'}
               <span className="text-xs font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200/60">
                 #{operator.registration}
               </span>
@@ -855,15 +958,15 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
                       </tr>
                     </thead>
                     <tbody>
-                      {operator.kpis.length === 0 ? (
+                      {mergedKpis.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="py-20 text-center text-gray-400 italic">
+                          <td colSpan={userRole === Role.SUPERVISOR ? 5 : 4} className="py-20 text-center text-gray-400 italic">
                             <TrendingUp className="mx-auto mb-2 opacity-20" size={48} />
                             Nenhum indicador registrado para este período.
                           </td>
                         </tr>
                       ) : (
-                        [...operator.kpis]
+                        [...mergedKpis]
                           .sort((a, b) => {
                             // Primeiro pelo mês (desc)
                             if (a.month !== b.month) return b.month.localeCompare(a.month);
@@ -872,9 +975,9 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
                             const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
                             return dateB - dateA;
                           })
-                          .map((kpi, index, array) => {
+                          .map((kpi) => {
                             // Verifica se é o mais recente deste mês no array completo
-                            const latestOfThisMonth = getLatestKPIsPerMonth(operator.kpis).some(lk => lk.id === kpi.id);
+                            const latestOfThisMonth = getLatestKPIsPerMonth(mergedKpis).some(lk => lk.id === kpi.id);
 
                             return (
                               <tr key={kpi.id} className={`border-b last:border-0 hover:bg-gray-50 transition-colors group ${!latestOfThisMonth ? 'opacity-50' : ''}`}>
