@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { TeamGoals, CloudConfig } from '../types';
+import { TeamGoals, CloudConfig, Operator } from '../types';
 import { 
   Save, 
   Download, 
@@ -20,14 +20,19 @@ interface SettingsProps {
   onUpdateGoals: (g: TeamGoals) => void;
   cloudConfig: CloudConfig | null;
   onUpdateCloudConfig: (c: CloudConfig) => void;
+  operators?: Operator[];
 }
 
-const SettingsPage: React.FC<SettingsProps> = ({ goals, onUpdateGoals, cloudConfig, onUpdateCloudConfig }) => {
+const SettingsPage: React.FC<SettingsProps> = ({ goals, onUpdateGoals, cloudConfig, onUpdateCloudConfig, operators = [] }) => {
   const [formData, setFormData] = useState(goals);
   const [cloudData, setCloudData] = useState<CloudConfig>(cloudConfig || {
     url: '', key: '', enabled: false
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setFormData(goals);
+  }, [goals]);
 
   useEffect(() => {
     if (cloudConfig) setCloudData(cloudConfig);
@@ -47,14 +52,20 @@ const SettingsPage: React.FC<SettingsProps> = ({ goals, onUpdateGoals, cloudConf
   };
 
   const handleExportDB = () => {
-    const data = localStorage.getItem('callcenter_operators');
-    if (!data) return;
-    const blob = new Blob([data], { type: 'application/json' });
+    const payload = operators.length > 0
+      ? operators
+      : JSON.parse(localStorage.getItem('callcenter_operators') || '[]');
+    if (!payload || payload.length === 0) {
+      alert('Nenhum dado de colaborador carregado para exportar.');
+      return;
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = `backup_central156_${new Date().toISOString().split('T')[0]}.json`;
     link.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleImportDB = (e: React.ChangeEvent<HTMLInputElement>) => {

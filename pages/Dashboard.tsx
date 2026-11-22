@@ -14,8 +14,9 @@ import { Operator, TeamGoals, OperatorClassification } from '../types';
 import { MonthlyKpiRecord } from '../types/monthlyKpi';
 import {
   fetchMonthKpis,
+  fetchYearKpis,
   resolveCanonicalOperator,
-  getInitialSeedForMonth
+  MONTHLY_KPIS_UPDATED_EVENT
 } from '../services/monthlyKpiService';
 import { useAuth } from '../AuthContext';
 import { calculateAverageKPIs, getStatusColor, formatDecimal, tmaToSeconds } from '../utils';
@@ -104,11 +105,23 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
   const [selectedYear, setSelectedYear] = useState(String(currentDate.getFullYear()));
   const [selectedClassification, setSelectedClassification] = useState<'all' | OperatorClassification>('all');
   const [snapshotRecords, setSnapshotRecords] = useState<MonthlyKpiRecord[]>([]);
+  const [yearRecords, setYearRecords] = useState<MonthlyKpiRecord[]>([]);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  // Escuta alterações feitas na aba Indicadores ou Ficha do Colaborador
+  useEffect(() => {
+    const handleUpdated = () => setRefreshTick(t => t + 1);
+    window.addEventListener(MONTHLY_KPIS_UPDATED_EVENT, handleUpdated);
+    return () => window.removeEventListener(MONTHLY_KPIS_UPDATED_EVENT, handleUpdated);
+  }, []);
 
   // Carrega o Snapshot Mensal do período selecionado
   useEffect(() => {
     let cancelled = false;
-    fetchMonthKpis(supabase, Number(selectedYear), Number(selectedMonth), { isAdmin }).then(({ data }) => {
+    fetchMonthKpis(supabase, Number(selectedYear), Number(selectedMonth), {
+      isAdmin,
+      forceRefresh: refreshTick > 0
+    }).then(({ data }) => {
       if (!cancelled) {
         setSnapshotRecords(data || []);
       }
@@ -116,7 +129,20 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
     return () => {
       cancelled = true;
     };
-  }, [supabase, isAdmin, selectedYear, selectedMonth, operators]);
+  }, [supabase, isAdmin, selectedYear, selectedMonth, operators, refreshTick]);
+
+  // Carrega o histórico real de todos os meses do ano selecionado (reflete Excel/edições manuais)
+  useEffect(() => {
+    let cancelled = false;
+    fetchYearKpis(supabase, Number(selectedYear), { forceRefresh: refreshTick > 0 }).then(({ data }) => {
+      if (!cancelled) {
+        setYearRecords(data || []);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, selectedYear, operators, refreshTick]);
 
   // Mapa de operadores cadastrados na Equipe (por matrícula e por chave canônica)
   const operatorLookup = useMemo(() => {
@@ -193,23 +219,36 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
 
   // Dados do gráfico: evolução de todos os meses do ano selecionado (considerando apenas operadores ativos em cada mês)
   const chartData = useMemo(() => {
+    const nowYear = new Date().getFullYear();
+    const nowMonth = new Date().getMonth() + 1;
+
     return MONTHS.map((monthName, index) => {
       const monthNum = index + 1;
       const isSelectedM = monthNum === Number(selectedMonth);
+      const isCurrentCompetencia = Number(selectedYear) === nowYear && monthNum === nowMonth;
+
       const sourceRows = isSelectedM
         ? activeSnapshotOperators
-        : getInitialSeedForMonth(Number(selectedYear), monthNum).filter(r => r.status_mes === 'Ativo');
+        : yearRecords.filter(r => r.mes === monthNum && (!r.status_mes || r.status_mes === 'Ativo'));
 
-      const filteredRows = sourceRows.filter(rec => {
-        const linkedOp =
-          (rec.matricula && operatorLookup.byReg.get(String(rec.matricula).trim())) ||
-          operatorLookup.byKey.get(rec.operador_chave);
-        if (linkedOp && linkedOp.active === false) return false;
-        if (selectedClassification !== 'all' && linkedOp && linkedOp.classification !== selectedClassification) {
-          return false;
-        }
-        return true;
-      });
+      const filteredRows = isSelectedM
+        ? sourceRows
+        : sourceRows.filter(rec => {
+            const linkedOp =
+              (rec.matricula && operatorLookup.byReg.get(String(rec.matricula).trim())) ||
+              operatorLookup.byKey.get(rec.operador_chave);
+            if (isCurrentCompetencia && linkedOp && linkedOp.active === false) return false;
+            if (selectedClassification !== 'all') {
+              if (linkedOp) {
+                if (linkedOp.classification !== selectedClassification) return false;
+              } else {
+                const teamUpper = (rec.equipe_turno || '').toUpperCase();
+                if (selectedClassification === OperatorClassification.SMF && !teamUpper.includes('SMF')) return false;
+                if (selectedClassification === OperatorClassification.OUTROS && teamUpper.includes('SMF')) return false;
+              }
+            }
+            return true;
+          });
 
       const stats = calculateAverageKPIs(
         filteredRows.map((r, i) => ({
@@ -231,7 +270,7 @@ const Dashboard: React.FC<{ operators: Operator[]; goals: TeamGoals }> = ({ oper
         tmaFormatted: stats.tma || '00:00:00'
       };
     });
-  }, [activeSnapshotOperators, selectedMonth, selectedYear, operatorLookup, selectedClassification]);
+  }, [activeSnapshotOperators, yearRecords, selectedMonth, selectedYear, operatorLookup, selectedClassification]);
 
   const topPerformers = useMemo(() => {
     return activeSnapshotOperators

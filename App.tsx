@@ -97,23 +97,64 @@ const AppContent: React.FC = () => {
     if (supabase && changedOps.length > 0) {
       try {
         if (isAdmin) {
+          const existingPayloads: any[] = [];
+          const newPayloads: any[] = [];
+          const customPayloads: any[] = [];
+
           for (const op of changedOps) {
             const oldOp = oldOps.find(o => String(o.registration).trim() === String(op.registration).trim());
-            const payload: any = {
-              ...op,
-              registration: String(op.registration).trim(),
-              kpis: op.kpis || [],
-              feedbacks: op.feedbacks || []
-            };
-            if (oldOp && oldOp.documents === op.documents) {
-              delete payload.documents;
-            } else {
-              payload.documents = op.documents || [];
-            }
-            if (oldOp && oldOp.photoUrl === op.photoUrl) {
-              delete payload.photoUrl;
-            }
+            const cleanReg = String(op.registration).trim();
 
+            if (!oldOp) {
+              newPayloads.push({
+                ...op,
+                registration: cleanReg,
+                kpis: op.kpis || [],
+                feedbacks: op.feedbacks || [],
+                documents: op.documents || []
+              });
+            } else if (oldOp.documents === op.documents && oldOp.photoUrl === op.photoUrl) {
+              const payload: any = {
+                ...op,
+                registration: cleanReg,
+                kpis: op.kpis || [],
+                feedbacks: op.feedbacks || []
+              };
+              delete payload.documents;
+              delete payload.photoUrl;
+              existingPayloads.push(payload);
+            } else {
+              const payload: any = {
+                ...op,
+                registration: cleanReg,
+                kpis: op.kpis || [],
+                feedbacks: op.feedbacks || []
+              };
+              if (oldOp.documents === op.documents) {
+                delete payload.documents;
+              } else {
+                payload.documents = op.documents || [];
+              }
+              if (oldOp.photoUrl === op.photoUrl) {
+                delete payload.photoUrl;
+              }
+              customPayloads.push(payload);
+            }
+          }
+
+          if (existingPayloads.length > 0) {
+            const { error } = await supabase
+              .from('operators')
+              .upsert(existingPayloads, { onConflict: 'registration' });
+            if (error) throw error;
+          }
+          if (newPayloads.length > 0) {
+            const { error } = await supabase
+              .from('operators')
+              .upsert(newPayloads, { onConflict: 'registration' });
+            if (error) throw error;
+          }
+          for (const payload of customPayloads) {
             const { error } = await supabase
               .from('operators')
               .upsert(payload, { onConflict: 'registration' });
@@ -500,9 +541,26 @@ const AppContent: React.FC = () => {
               <>
                 <Route path="/operators" element={<OperatorsList operators={operators} onUpdate={handleUpdateOperators} onSaveOperator={handleSaveOperator} userRole={userRole!} />} />
                 <Route path="/operator/:id" element={<OperatorDetail operators={operators} onUpdate={handleUpdateOperators} onSaveOperator={handleSaveOperator} userRole={userRole!} goals={goals} isDataLoading={isDataLoading} />} />
-                <Route path="/indicators" element={<Indicators operators={operators} goals={goals} userRole={userRole!} onSaveOperator={handleSaveOperator} />} />
+                <Route path="/indicators" element={<Indicators operators={operators} goals={goals} userRole={userRole!} onSaveOperator={handleSaveOperator} onUpdate={handleUpdateOperators} />} />
                 <Route path="/pending" element={<PendingIndicators operators={operators} onUpdate={handleUpdateOperators} userRole={userRole!} />} />
-                <Route path="/settings" element={<SettingsPage goals={goals} onUpdateGoals={handleUpdateGoals} cloudConfig={null} onUpdateCloudConfig={() => { }} />} />
+                <Route
+                  path="/settings"
+                  element={
+                    <SettingsPage
+                      goals={goals}
+                      onUpdateGoals={handleUpdateGoals}
+                      operators={operators}
+                      cloudConfig={{
+                        url: import.meta.env.VITE_SUPABASE_URL || 'https://wdeyalyeodicquajiywy.supabase.co',
+                        key: import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_tQ-XWwcY5z47f2NBJWkQWw_seUu03uP',
+                        enabled: !!supabase
+                      }}
+                      onUpdateCloudConfig={() => {
+                        alert('Conexão ativa gerenciada via Supabase Cloud (wdeyalyeodicquajiywy).');
+                      }}
+                    />
+                  }
+                />
                 <Route path="/evaluation" element={<PerformanceEvaluation operators={operators} goals={goals} userRole={userRole!} />} />
                 <Route path="/pdi" element={<PdiManagement operators={operators} />} />
               </>

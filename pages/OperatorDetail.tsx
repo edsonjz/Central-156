@@ -34,7 +34,12 @@ import { Operator, Role, KPI, Feedback, TeamGoals, OperatorClassification } from
 import { calculateAverageKPIs, getStatusColor, formatDecimal, generateSystemEmail, getLatestKPIsPerMonth, compressImage } from '../utils';
 import { useAuth } from '../AuthContext';
 import { MONTHS } from '../constants';
-import { saveSingleMonthlyKpi, resolveCanonicalOperator } from '../services/monthlyKpiService';
+import {
+  saveSingleMonthlyKpi,
+  deleteMonthlyKpiRecord,
+  fetchMonthKpis,
+  resolveCanonicalOperator
+} from '../services/monthlyKpiService';
 
 interface OperatorDetailProps {
   operators: Operator[];
@@ -345,35 +350,81 @@ const OperatorDetail: React.FC<OperatorDetailProps> = ({ operators, onUpdate, on
     // 1. Salva na ficha do operador (public.operators)
     onSaveOperator({ ...operator, kpis: updatedKpis });
 
-    // 2. Sincroniza automaticamente com o Snapshot Mensal de Indicadores
+    // 2. Sincroniza automaticamente com o Snapshot Mensal de Indicadores (preservando ABS/observações existentes)
     const [anoStr, mesStr] = targetMonth.split('-');
     const anoNum = Number(anoStr);
     const mesNum = Number(mesStr);
     if (anoNum && mesNum) {
       const canonical = resolveCanonicalOperator(operator.name, operator.registration);
+      const { data: monthList } = await fetchMonthKpis(supabase, anoNum, mesNum);
+      const existingSnap = (monthList || []).find(
+        r =>
+          r.operador_chave === canonical.operador_chave ||
+          (r.matricula && String(r.matricula).trim() === String(operator.registration).trim())
+      );
+
       await saveSingleMonthlyKpi(supabase, {
+        ...(existingSnap || {}),
         ano: anoNum,
         mes: mesNum,
-        operador_chave: canonical.operador_chave,
-        operador_nome: operator.name,
-        matricula: operator.registration,
+        operador_chave: existingSnap?.operador_chave || canonical.operador_chave,
+        operador_nome: existingSnap?.operador_nome || operator.name,
+        matricula: existingSnap?.matricula ?? operator.registration,
         tma: finalKPI.tma,
         tma_segundos: null,
         nps: finalKPI.nps,
         monitoria: finalKPI.monitoria,
-        abs: null,
-        equipe_turno: `${operator.classification || 'Central 156'} / ${operator.workMode || 'Presencial'}`,
-        status_mes: operator.active !== false ? 'Ativo' : 'Desligado',
-        observacoes: null
+        abs: existingSnap?.abs ?? null,
+        equipe_turno:
+          existingSnap?.equipe_turno ||
+          `${operator.classification || 'Central 156'} / ${operator.workMode || 'Presencial'}`,
+        status_mes: existingSnap?.status_mes || (operator.active !== false ? 'Ativo' : 'Desligado'),
+        observacoes: existingSnap?.observacoes ?? null
       });
     }
 
     setModalKPI(false);
   };
 
-  const handleDeleteKPI = (kpiId: string) => {
+  const handleDeleteKPI = async (kpiId: string) => {
     if (window.confirm('Tem certeza que deseja excluir permanentemente este indicador de KPI?') && operator) {
-      onSaveOperator({ ...operator, kpis: operator.kpis.filter(k => k.id !== kpiId) });
+      const kpiToDelete = operator.kpis.find(k => k.id === kpiId);
+      const remainingKpis = operator.kpis.filter(k => k.id !== kpiId);
+      onSaveOperator({ ...operator, kpis: remainingKpis });
+
+      if (kpiToDelete?.month) {
+        const [anoStr, mesStr] = kpiToDelete.month.split('-');
+        const anoNum = Number(anoStr);
+        const mesNum = Number(mesStr);
+        if (anoNum && mesNum) {
+          const canonical = resolveCanonicalOperator(operator.name, operator.registration);
+          const sameMonthRemaining = remainingKpis.filter(k => k.month === kpiToDelete.month);
+          if (sameMonthRemaining.length > 0) {
+            const latest = sameMonthRemaining.reduce((lat, cur) => {
+              if (!lat.createdAt) return cur;
+              if (!cur.createdAt) return lat;
+              return new Date(cur.createdAt) > new Date(lat.createdAt) ? cur : lat;
+            }, sameMonthRemaining[0]);
+            await saveSingleMonthlyKpi(supabase, {
+              ano: anoNum,
+              mes: mesNum,
+              operador_chave: canonical.operador_chave,
+              operador_nome: operator.name,
+              matricula: operator.registration,
+              tma: latest.tma ?? null,
+              tma_segundos: null,
+              nps: latest.nps ?? null,
+              monitoria: latest.monitoria ?? null,
+              abs: latest.abs ?? null,
+              equipe_turno: `${operator.classification || 'Central 156'} / ${operator.workMode || 'Presencial'}`,
+              status_mes: operator.active !== false ? 'Ativo' : 'Desligado',
+              observacoes: null
+            });
+          } else {
+            await deleteMonthlyKpiRecord(supabase, anoNum, mesNum, canonical.operador_chave);
+          }
+        }
+      }
     }
   };
 

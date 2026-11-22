@@ -6,6 +6,13 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import * as XLSX from 'xlsx';
 import {
+  Operator,
+  KPI,
+  WorkMode,
+  LinkType,
+  OperatorClassification
+} from '../types';
+import {
   MonthlyKpiRecord,
   MonthlyOperatorStatus,
   MONTHLY_STATUS_LIST,
@@ -23,11 +30,14 @@ import { tmaToSeconds, secondsToTma } from '../utils';
 export const MONTHLY_KPI_COLS =
   'id, ano, mes, operador_chave, operador_nome, matricula, monitoria, tma, tma_segundos, nps, abs, equipe_turno, status_mes, observacoes, updated_at';
 
+export const MONTHLY_KPIS_UPDATED_EVENT = 'central156:monthly-kpis-updated';
+
 const LOCAL_CACHE_PREFIX = 'central156_monthly_kpis_v1_';
 const SEMAPHORE_STORAGE_KEY = 'central156_semaphore_goals_v1';
 
 // Cache em memória para evitar chamadas repetidas ao alternar abas de meses já carregados
 const monthMemoryCache = new Map<string, MonthlyKpiRecord[]>();
+const yearMemoryCache = new Map<number, MonthlyKpiRecord[]>();
 const operatorHistoryMemoryCache = new Map<string, MonthlyKpiRecord[]>();
 let tableExistsState: 'unknown' | 'exists' | 'missing' = 'unknown';
 
@@ -37,17 +47,31 @@ export const getCompetenciaKey = (ano: number, mes: number): string =>
 export const getCompetenciaLabel = (ano: number, mes: number): string =>
   `${MONTHS[mes - 1] || mes}/${ano}`;
 
+export const notifyMonthlyKpisUpdated = (detail?: { ano?: number; mes?: number; operadorChave?: string }) => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(MONTHLY_KPIS_UPDATED_EVENT, { detail }));
+  }
+};
+
 export const invalidateMonthlyCache = (ano?: number, mes?: number, operadorChave?: string) => {
   if (ano && mes) {
     monthMemoryCache.delete(getCompetenciaKey(ano, mes));
+    yearMemoryCache.delete(ano);
+  } else if (ano) {
+    yearMemoryCache.delete(ano);
+    for (const k of monthMemoryCache.keys()) {
+      if (k.startsWith(`${ano}-`)) monthMemoryCache.delete(k);
+    }
   } else {
     monthMemoryCache.clear();
+    yearMemoryCache.clear();
   }
   if (operadorChave) {
     operatorHistoryMemoryCache.delete(operadorChave);
   } else {
     operatorHistoryMemoryCache.clear();
   }
+  notifyMonthlyKpisUpdated({ ano, mes, operadorChave });
 };
 
 // Dicionário canônico para unificar variações de escrita, logins (ex: Benjamin.Lisboa) e matrículas
@@ -77,23 +101,23 @@ const CANONICAL_OPERATOR_RULES: Array<{
   { patterns: ['shaiana meireles', 'shaiana.souza'], key: 'op_56735', name: 'Shaiana Meireles de Souza', matricula: '56735', team: 'Presencial' },
   { patterns: ['tania cristina', 'tania.flores'], key: 'op_56323', name: 'Tania Cristina Machado Flores', matricula: '56323', team: 'SMF / Presencial' },
   { patterns: ['izadora costa', 'isadora costa'], key: 'op_2090', name: 'Izadora Costa da Silveira', matricula: '2090', team: 'Presencial' },
-  { patterns: ['bruna baier', 'bruna baptista'], key: 'bruna_baier_baptista', name: 'Bruna Baier Baptista', matricula: null, team: 'Central 156' },
-  { patterns: ['bruna correa neves'], key: 'bruna_correa_neves', name: 'Bruna Correa Neves', matricula: null, team: 'Central 156' },
-  { patterns: ['bruna fonseca vilanova'], key: 'bruna_fonseca_vilanova', name: 'Bruna Fonseca Vilanova', matricula: null, team: 'Central 156' },
+  { patterns: ['bruna baier', 'bruna baptista'], key: 'bruna_baier_baptista', name: 'Bruna Baier Baptista', matricula: '56382', team: 'Central 156' },
+  { patterns: ['bruna correa neves', 'bruna neves'], key: 'bruna_correa_neves', name: 'Bruna Correa Neves', matricula: '56597', team: 'Central 156' },
+  { patterns: ['bruna fonseca vilanova', 'bruna vilanova'], key: 'bruna_fonseca_vilanova', name: 'Bruna Fonseca Vilanova', matricula: '19496', team: 'SMF / Presencial' },
   { patterns: ['bruno da silva ribeiro'], key: 'bruno_da_silva_ribeiro', name: 'Bruno da Silva Ribeiro', matricula: null, team: 'Central 156' },
-  { patterns: ['leonardo de mattos menezes', 'leonardo menezes', 'leonardo.menezes'], key: 'leonardo_de_mattos_menezes', name: 'Leonardo de Mattos Menezes', matricula: null, team: 'Central 156' },
-  { patterns: ['leonardo coelho de souza'], key: 'leonardo_coelho_de_souza', name: 'Leonardo Coelho de Souza', matricula: null, team: 'Central 156' },
+  { patterns: ['leonardo de mattos menezes', 'leonardo menezes', 'leonardo.menezes'], key: 'leonardo_de_mattos_menezes', name: 'Leonardo de Mattos Menezes', matricula: '56427', team: 'Central 156' },
+  { patterns: ['leonardo coelho de souza'], key: 'leonardo_coelho_de_souza', name: 'Leonardo Coelho de Souza', matricula: '19417', team: 'Central 156' },
   { patterns: ['gisele fagundes santos', 'gisele.santos'], key: 'gisele_fagundes_santos', name: 'Gisele Fagundes Santos', matricula: null, team: 'Central 156' },
   { patterns: ['cristiane.trois', 'cristiane trois'], key: 'cristiane_trois', name: 'Cristiane Trois', matricula: null, team: 'Central 156' },
   { patterns: ['francielli.almenida', 'francielli almeida'], key: 'francielli_almeida', name: 'Francielli Almeida', matricula: null, team: 'Central 156' },
   { patterns: ['gabrielle.longaray', 'gabrielle longaray'], key: 'gabrielle_longaray', name: 'Gabrielle Longaray', matricula: null, team: 'Central 156' },
-  { patterns: ['larissa da silva franco'], key: 'larissa_da_silva_franco', name: 'Larissa da Silva Franco', matricula: null, team: 'Central 156' },
+  { patterns: ['larissa da silva franco', 'larissa franco'], key: 'larissa_da_silva_franco', name: 'Larissa da Silva Franco', matricula: '19401', team: 'Central 156' },
   { patterns: ['lucineia braga nunes'], key: 'lucineia_braga_nunes', name: 'Lucinéia Braga Nunes', matricula: null, team: 'Central 156' },
   { patterns: ['eduarda rodrigues gomes'], key: 'eduarda_rodrigues_gomes', name: 'Eduarda Rodrigues Gomes', matricula: null, team: 'Central 156' },
-  { patterns: ['elisiane soares'], key: 'elisiane_soares', name: 'Elisiane Soares', matricula: null, team: 'Central 156' },
+  { patterns: ['elisiane soares'], key: 'elisiane_soares', name: 'Elisiane Soares', matricula: '19441', team: 'SMF / Presencial' },
   { patterns: ['yago machado fontoura'], key: 'yago_machado_fontoura', name: 'Yago Machado Fontoura', matricula: null, team: 'Central 156' },
-  { patterns: ['kamille cardoso da silva'], key: 'kamille_cardoso_da_silva', name: 'Kamille Cardoso da Silva', matricula: null, team: 'Central 156' },
-  { patterns: ['shaiane de almeida carvalho'], key: 'shaiane_de_almeida_carvalho', name: 'Shaiane de Almeida Carvalho', matricula: null, team: 'Central 156' },
+  { patterns: ['kamille cardoso da silva'], key: 'kamille_cardoso_da_silva', name: 'Kamille Cardoso da Silva', matricula: '100946', team: 'Central 156' },
+  { patterns: ['shaiane de almeida carvalho'], key: 'shaiane_de_almeida_carvalho', name: 'Shaiane de Almeida Carvalho', matricula: '100947', team: 'Central 156' },
   { patterns: ['ana vitoria treptow xavier'], key: 'ana_vitoria_treptow_xavier', name: 'Ana Vitória Treptow Xavier', matricula: null, team: 'Central 156' },
   { patterns: ['joao victor marinho nichele'], key: 'joao_victor_marinho_nichele', name: 'João Victor Marinho Nichele', matricula: null, team: 'Central 156' },
   { patterns: ['vitor barbosa mota de souza'], key: 'vitor_barbosa_mota_de_souza', name: 'Vitor Barbosa Mota de Souza', matricula: null, team: 'Central 156' },
@@ -270,6 +294,31 @@ export const loadSemaphoreGoals = (): MonthlySemaphoreGoals => {
   } catch {
     return DEFAULT_SEMAPHORE_GOALS;
   }
+};
+
+export const syncSemaphoreGoalsFromCloud = async (
+  supabase: SupabaseClient | null
+): Promise<MonthlySemaphoreGoals> => {
+  const local = loadSemaphoreGoals();
+  if (!supabase) return local;
+  try {
+    const { data, error } = await supabase
+      .from('config')
+      .select('value')
+      .eq('key', 'metas_semaforo_mensal')
+      .maybeSingle();
+    if (!error && data?.value && typeof data.value === 'object') {
+      const merged: MonthlySemaphoreGoals = {
+        ...DEFAULT_SEMAPHORE_GOALS,
+        ...(data.value as Partial<MonthlySemaphoreGoals>)
+      };
+      localStorage.setItem(SEMAPHORE_STORAGE_KEY, JSON.stringify(merged));
+      return merged;
+    }
+  } catch {
+    // fallback local
+  }
+  return local;
 };
 
 export const saveSemaphoreGoals = async (
@@ -518,7 +567,7 @@ export const saveSingleMonthlyKpi = async (
   const tmaParsed = normalizeTmaValue(record.tma);
 
   const cleanRecord: MonthlyKpiRecord = {
-    ...record,
+    id: record.id,
     ano: Number(record.ano),
     mes: Number(record.mes),
     operador_chave: record.operador_chave || canonical.operador_chave,
@@ -822,6 +871,396 @@ export const fetchOperatorMonthlyHistory = async (
 
   operatorHistoryMemoryCache.set(operadorChave, history);
   return { data: history, error: null };
+};
+
+/**
+ * Busca todos os KPIs de um ano inteiro em 1 única consulta leve ao banco,
+ * combinando registros salvos no Supabase (monthly_kpis ou config) com o seed inicial
+ * para meses ainda não gravados no banco. Usado pelo Dashboard para evolução anual real.
+ */
+export const fetchYearKpis = async (
+  supabase: SupabaseClient | null,
+  ano: number,
+  options?: { forceRefresh?: boolean }
+): Promise<{ data: MonthlyKpiRecord[]; error: string | null }> => {
+  if (!options?.forceRefresh && yearMemoryCache.has(ano)) {
+    return { data: yearMemoryCache.get(ano)!, error: null };
+  }
+
+  const byMonth = new Map<number, MonthlyKpiRecord[]>();
+
+  if (supabase && tableExistsState !== 'missing') {
+    const { data, error } = await supabase
+      .from('monthly_kpis')
+      .select(MONTHLY_KPI_COLS)
+      .eq('ano', ano)
+      .order('mes', { ascending: true })
+      .order('operador_nome', { ascending: true });
+
+    if (!error && data) {
+      tableExistsState = 'exists';
+      for (const row of data as MonthlyKpiRecord[]) {
+        const list = byMonth.get(row.mes) || [];
+        list.push(row);
+        byMonth.set(row.mes, list);
+      }
+    } else if (error && (error.code === 'PGRST205' || error.code === '42P01' || error.message?.includes('monthly_kpis'))) {
+      tableExistsState = 'missing';
+    }
+  }
+
+  if (supabase && tableExistsState === 'missing') {
+    try {
+      const { data: cfgRows } = await supabase
+        .from('config')
+        .select('key, value')
+        .like('key', `monthly_kpis_${ano}_%`);
+
+      if (cfgRows) {
+        for (const row of cfgRows) {
+          const match = String(row.key || '').match(/monthly_kpis_\d{4}_(\d{2})/);
+          if (match && Array.isArray(row.value)) {
+            const mesNum = Number(match[1]);
+            byMonth.set(mesNum, row.value as MonthlyKpiRecord[]);
+          }
+        }
+      }
+    } catch {
+      // fallback para cache local / seed abaixo
+    }
+  }
+
+  const allRecords: MonthlyKpiRecord[] = [];
+  for (let m = 1; m <= 12; m++) {
+    const key = getCompetenciaKey(ano, m);
+    if (byMonth.has(m)) {
+      const monthRows = byMonth.get(m)!;
+      saveLocalMonthCache(ano, m, monthRows);
+      allRecords.push(...monthRows);
+    } else {
+      const alreadyCleared = typeof localStorage !== 'undefined' && localStorage.getItem(`${LOCAL_CACHE_PREFIX}cleared_${key}`) === '1';
+      if (alreadyCleared) continue;
+      const fallback = loadLocalMonthCache(ano, m) || getInitialSeedForMonth(ano, m);
+      allRecords.push(...fallback);
+    }
+  }
+
+  yearMemoryCache.set(ano, allRecords);
+  return { data: allRecords, error: null };
+};
+
+// ==============================================================================
+// MOTOR DE SINCRONIZAÇÃO BIDIRECIONAL: SNAPSHOT MENSAL <-> EQUIPE / FICHA / 90° / PDI
+// ==============================================================================
+
+export const findMatchingOperatorIndex = (
+  operators: Operator[],
+  target: { matricula?: string | null; operador_chave: string; operador_nome: string }
+): number => {
+  const cleanMat = target.matricula ? String(target.matricula).trim() : '';
+  if (cleanMat) {
+    const byMat = operators.findIndex(op => String(op.registration || '').trim() === cleanMat);
+    if (byMat >= 0) return byMat;
+  }
+
+  const byCanonical = operators.findIndex(op => {
+    const canonical = resolveCanonicalOperator(op.name, op.registration);
+    return canonical.operador_chave === target.operador_chave;
+  });
+  if (byCanonical >= 0) return byCanonical;
+
+  const byKeyAsReg = operators.findIndex(
+    op => String(op.registration || '').trim() === target.operador_chave
+  );
+  if (byKeyAsReg >= 0) return byKeyAsReg;
+
+  const normTargetName = stripAccents(String(target.operador_nome || '')).toLowerCase().trim();
+  if (normTargetName) {
+    const byName = operators.findIndex(
+      op => stripAccents(String(op.name || '')).toLowerCase().trim() === normTargetName
+    );
+    if (byName >= 0) return byName;
+
+    // Fallback seguro por primeiro + último nome (ex: "Bruna Neves" vs "Bruna Correa Neves"), apenas se houver correspondência única
+    const targetParts = normTargetName.split(/\s+/).filter(Boolean);
+    if (targetParts.length >= 2) {
+      const targetFirstLast = `${targetParts[0]} ${targetParts[targetParts.length - 1]}`;
+      const matchedIndices = operators
+        .map((op, idx) => {
+          const parts = stripAccents(String(op.name || '')).toLowerCase().trim().split(/\s+/).filter(Boolean);
+          if (parts.length < 2) return -1;
+          const firstLast = `${parts[0]} ${parts[parts.length - 1]}`;
+          return firstLast === targetFirstLast ? idx : -1;
+        })
+        .filter(idx => idx >= 0);
+
+      if (matchedIndices.length === 1) return matchedIndices[0];
+    }
+  }
+
+  return -1;
+};
+
+const parseTeamAttributes = (
+  equipeTurno?: string | null,
+  existing?: Operator
+): { workMode: WorkMode; classification: OperatorClassification } => {
+  const norm = stripAccents(String(equipeTurno || '')).toLowerCase();
+
+  let workMode = existing?.workMode || WorkMode.PRESENTIAL;
+  if (norm.includes('home')) {
+    workMode = WorkMode.HOME_OFFICE;
+  } else if (norm.includes('presencial')) {
+    workMode = WorkMode.PRESENTIAL;
+  }
+
+  let classification = existing?.classification || OperatorClassification.OUTROS;
+  if (norm.includes('smf')) {
+    classification = OperatorClassification.SMF;
+  }
+
+  return { workMode, classification };
+};
+
+const getLatestCompetenciaStr = (op: Operator): string => {
+  if (!op.kpis || op.kpis.length === 0) return '0000-00';
+  return op.kpis.reduce((max, k) => (k.month > max ? k.month : max), '0000-00');
+};
+
+const hasValidKpiMetrics = (rec: MonthlyKpiRecord): boolean => {
+  const hasTma = !!(rec.tma && rec.tma !== '00:00:00');
+  const hasNps = rec.nps !== null && rec.nps !== undefined;
+  const hasMon = rec.monitoria !== null && rec.monitoria !== undefined;
+  return hasTma || hasNps || hasMon;
+};
+
+const isSameKpiValues = (a: KPI | undefined, rec: MonthlyKpiRecord): boolean => {
+  if (!a) return false;
+  const recTma = rec.tma && rec.tma !== '00:00:00' ? rec.tma : null;
+  const aTma = a.tma && a.tma !== '00:00:00' ? a.tma : null;
+  const recNps = rec.nps !== null && rec.nps !== undefined ? Number(rec.nps) : null;
+  const aNps = a.nps !== null && a.nps !== undefined ? Number(a.nps) : null;
+  const recMon = rec.monitoria !== null && rec.monitoria !== undefined ? Number(rec.monitoria) : null;
+  const aMon = a.monitoria !== null && a.monitoria !== undefined ? Number(a.monitoria) : null;
+  return aTma === recTma && aNps === recNps && aMon === recMon;
+};
+
+/**
+ * Mescla registros mensais (da importação Excel ou lançamento manual em Indicadores)
+ * diretamente na lista global de operadores (`public.operators`), criando novos
+ * colaboradores quando ainda não existem e atualizando seus KPIs, modalidade e status.
+ */
+export const mergeMonthlyRecordsIntoOperators = (
+  currentOperators: Operator[],
+  records: MonthlyKpiRecord[],
+  options?: {
+    mode?: ImportMode;
+    affectedCompetencias?: Array<{ ano: number; mes: number }>;
+    syncStatus?: boolean;
+  }
+): { updatedOperators: Operator[]; changedOperators: Operator[] } => {
+  const shouldSyncStatus = options?.syncStatus !== false;
+  const nextList: Operator[] = currentOperators.map(op => ({
+    ...op,
+    kpis: [...(op.kpis || [])]
+  }));
+  const changedRegs = new Set<string>();
+
+  // Em modo 'replace', remove o KPI dos meses substituídos para operadores que não vieram na nova planilha
+  if (options?.mode === 'replace' && options.affectedCompetencias && options.affectedCompetencias.length > 0) {
+    const keysByMonth = new Map<string, Set<string>>();
+    for (const comp of options.affectedCompetencias) {
+      keysByMonth.set(getCompetenciaKey(comp.ano, comp.mes), new Set<string>());
+    }
+    for (const rec of records) {
+      const mKey = getCompetenciaKey(rec.ano, rec.mes);
+      keysByMonth.get(mKey)?.add(rec.operador_chave);
+      if (rec.matricula) {
+        keysByMonth.get(mKey)?.add(String(rec.matricula).trim());
+      }
+    }
+
+    for (const op of nextList) {
+      const cleanReg = String(op.registration).trim();
+      const canonical = resolveCanonicalOperator(op.name, cleanReg);
+      let modified = false;
+
+      const filteredKpis = op.kpis.filter(k => {
+        const allowedKeys = keysByMonth.get(k.month);
+        if (!allowedKeys) return true;
+        const stays = allowedKeys.has(cleanReg) || allowedKeys.has(canonical.operador_chave);
+        if (!stays) modified = true;
+        return stays;
+      });
+
+      if (modified) {
+        op.kpis = filteredKpis;
+        changedRegs.add(cleanReg);
+      }
+    }
+  }
+
+  // Descobre a competência mais recente por operador dentro do próprio lote recebido
+  const latestBatchMonthByTarget = new Map<string, string>();
+  for (const rec of records) {
+    const mKey = getCompetenciaKey(rec.ano, rec.mes);
+    const idKey = rec.operador_chave || String(rec.matricula || rec.operador_nome);
+    const prev = latestBatchMonthByTarget.get(idKey) || '0000-00';
+    if (mKey > prev) latestBatchMonthByTarget.set(idKey, mKey);
+  }
+
+  const usedRegistrations = new Set<string>(
+    nextList.map(o => String(o.registration || '').trim()).filter(Boolean)
+  );
+
+  for (const rec of records) {
+    const monthStr = getCompetenciaKey(rec.ano, rec.mes);
+    const hasMetrics = hasValidKpiMetrics(rec);
+    const idx = findMatchingOperatorIndex(nextList, rec);
+
+    if (idx === -1) {
+      // Cria automaticamente novo colaborador na Gestão de Equipe
+      let regCandidate =
+        (rec.matricula && String(rec.matricula).trim()) ||
+        rec.operador_chave.replace(/^op_/, '') ||
+        rec.operador_chave;
+
+      if (!regCandidate || usedRegistrations.has(regCandidate)) {
+        regCandidate = rec.operador_chave;
+      }
+      if (usedRegistrations.has(regCandidate)) {
+        let suffix = 2;
+        while (usedRegistrations.has(`${regCandidate}_${suffix}`)) suffix++;
+        regCandidate = `${regCandidate}_${suffix}`;
+      }
+      usedRegistrations.add(regCandidate);
+
+      const { workMode, classification } = parseTeamAttributes(rec.equipe_turno);
+      const newKpis: KPI[] = hasMetrics
+        ? [
+            {
+              id: `kpi_${monthStr}_${regCandidate}`,
+              month: monthStr,
+              tma: rec.tma && rec.tma !== '00:00:00' ? rec.tma : null,
+              nps: rec.nps !== null && rec.nps !== undefined ? Number(rec.nps) : null,
+              monitoria: rec.monitoria !== null && rec.monitoria !== undefined ? Number(rec.monitoria) : null,
+              abs: rec.abs !== null && rec.abs !== undefined ? Number(rec.abs) : null,
+              createdAt: rec.updated_at || new Date().toISOString()
+            }
+          ]
+        : [];
+
+      const newOperator: Operator = {
+        registration: regCandidate,
+        name: formatOperatorDisplayName(rec.operador_nome),
+        admissionDate: new Date().toLocaleDateString('pt-BR'),
+        role: 'Op. Receptivo 1',
+        linkType: LinkType.EFETIVO,
+        costCenter: 'CENTRAL 156',
+        classification,
+        workMode,
+        birthDate: '',
+        active: (rec.status_mes || 'Ativo') === 'Ativo',
+        kpis: newKpis,
+        feedbacks: [],
+        documents: []
+      };
+
+      nextList.push(newOperator);
+      changedRegs.add(regCandidate);
+      continue;
+    }
+
+    const op = nextList[idx];
+    const cleanReg = String(op.registration).trim();
+    const latestExisting = getLatestCompetenciaStr(op);
+    const idKey = rec.operador_chave || String(rec.matricula || rec.operador_nome);
+    const latestInBatch = latestBatchMonthByTarget.get(idKey) || monthStr;
+    const isLatestForOperator = monthStr >= latestExisting && monthStr >= latestInBatch;
+
+    let opChanged = false;
+
+    // 1. Atualiza ou insere o KPI da competência YYYY-MM dentro de op.kpis
+    const monthMatches = op.kpis.filter(k => k.month === monthStr);
+    const latestMonthKpi =
+      monthMatches.length > 0
+        ? monthMatches.reduce((lat, cur) => {
+            if (!lat.createdAt) return cur;
+            if (!cur.createdAt) return lat;
+            return new Date(cur.createdAt) > new Date(lat.createdAt) ? cur : lat;
+          }, monthMatches[0])
+        : undefined;
+
+    if (hasMetrics) {
+      if (!isSameKpiValues(latestMonthKpi, rec) || monthMatches.length > 1) {
+        const updatedKpi: KPI = {
+          id: latestMonthKpi?.id || `kpi_${monthStr}_${cleanReg}`,
+          month: monthStr,
+          tma: rec.tma && rec.tma !== '00:00:00' ? rec.tma : null,
+          nps: rec.nps !== null && rec.nps !== undefined ? Number(rec.nps) : null,
+          monitoria: rec.monitoria !== null && rec.monitoria !== undefined ? Number(rec.monitoria) : null,
+          abs: rec.abs !== null && rec.abs !== undefined ? Number(rec.abs) : null,
+          createdAt: new Date().toISOString()
+        };
+        op.kpis = [...op.kpis.filter(k => k.month !== monthStr), updatedKpi];
+        opChanged = true;
+      }
+    } else if (monthMatches.length > 0) {
+      op.kpis = op.kpis.filter(k => k.month !== monthStr);
+      opChanged = true;
+    }
+
+    // 2. Sincroniza status Ativo/Inativo, Modalidade e Atribuição quando é a competência mais recente
+    if (isLatestForOperator && shouldSyncStatus) {
+      const shouldBeActive = (rec.status_mes || 'Ativo') === 'Ativo';
+      if ((op.active !== false) !== shouldBeActive) {
+        op.active = shouldBeActive;
+        opChanged = true;
+      }
+
+      const { workMode, classification } = parseTeamAttributes(rec.equipe_turno, op);
+      if (op.workMode !== workMode) {
+        op.workMode = workMode;
+        opChanged = true;
+      }
+      if (op.classification !== classification) {
+        op.classification = classification;
+        opChanged = true;
+      }
+    }
+
+    if (opChanged) {
+      changedRegs.add(cleanReg);
+    }
+  }
+
+  nextList.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  const changedOperators = nextList.filter(o => changedRegs.has(String(o.registration).trim()));
+
+  return { updatedOperators: nextList, changedOperators };
+};
+
+/**
+ * Remove o lançamento de um mês específico (YYYY-MM) de dentro de operator.kpis
+ * quando o operador é excluído daquela competência na aba Indicadores.
+ */
+export const removeMonthFromOperatorKpis = (
+  currentOperators: Operator[],
+  ano: number,
+  mes: number,
+  target: { matricula?: string | null; operador_chave: string; operador_nome: string }
+): Operator | null => {
+  const idx = findMatchingOperatorIndex(currentOperators, target);
+  if (idx === -1) return null;
+
+  const op = currentOperators[idx];
+  const monthStr = getCompetenciaKey(ano, mes);
+  if (!op.kpis?.some(k => k.month === monthStr)) return null;
+
+  return {
+    ...op,
+    kpis: op.kpis.filter(k => k.month !== monthStr)
+  };
 };
 
 // ==============================================================================

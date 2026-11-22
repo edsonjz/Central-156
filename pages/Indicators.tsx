@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   Search,
@@ -46,20 +46,26 @@ import {
   MonthlyOperatorStatus,
   MONTHLY_STATUS_LIST,
   MonthlySemaphoreGoals,
-  SemaphoreLevel
+  SemaphoreLevel,
+  ImportMode
 } from '../types/monthlyKpi';
 import {
   fetchMonthKpis,
   saveSingleMonthlyKpi,
   deleteMonthlyKpiRecord,
   loadSemaphoreGoals,
+  syncSemaphoreGoalsFromCloud,
   saveSemaphoreGoals,
   evaluateMetricSemaphore,
   exportMonthToExcel,
   downloadExcelTemplate,
   getCompetenciaLabel,
   getAvailableSeedCompetencias,
-  resolveCanonicalOperator
+  resolveCanonicalOperator,
+  mergeMonthlyRecordsIntoOperators,
+  removeMonthFromOperatorKpis,
+  getCompetenciaKey,
+  stripAccents
 } from '../services/monthlyKpiService';
 import { ExcelImportModal } from '../components/kpis/ExcelImportModal';
 import { OperatorHistoryDrawer } from '../components/kpis/OperatorHistoryDrawer';
@@ -73,7 +79,8 @@ interface IndicatorsProps {
   operators: Operator[];
   goals: TeamGoals;
   userRole: Role;
-  onSaveOperator?: (op: Operator) => void;
+  onSaveOperator?: (op: Operator) => Promise<void> | void;
+  onUpdate?: (ops: Operator[] | ((prev: Operator[]) => Operator[])) => Promise<void> | void;
 }
 
 const SEMAPHORE_STYLES: Record<SemaphoreLevel, { badge: string; dot: string; bar: string; text: string }> = {
@@ -276,7 +283,7 @@ const ToggleFilter = ({
 type TableSortColumn = 'name' | 'tma' | 'nps' | 'monitoria' | 'abs';
 type TableSortDirection = 'asc' | 'desc';
 
-const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOperator }) => {
+const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOperator, onUpdate }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -310,9 +317,16 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOper
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Farol de Metas (Semáforo)
+  // Farol de Metas (Semáforo — carrega local e sincroniza da nuvem para novas máquinas)
   const [semaphoreGoals, setSemaphoreGoals] = useState<MonthlySemaphoreGoals>(() => loadSemaphoreGoals());
   const [isSemaphoreModalOpen, setIsSemaphoreModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    syncSemaphoreGoalsFromCloud(supabase).then(cloudGoals => {
+      setSemaphoreGoals(cloudGoals);
+    });
+  }, [supabase]);
 
   // Modais de CRUD Mensal, Importação Excel e Histórico do Operador
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -327,17 +341,48 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOper
     matricula?: string | null;
   } | null>(null);
 
-  // Lista de competências rápidas disponíveis (Jun/2025 a Nov/2026 + mês selecionado)
-  const quickCompetencias = useMemo(() => {
-    const base = getAvailableSeedCompetencias();
-    const exists = base.some(c => c.ano === selectedYear && c.mes === selectedMonth);
-    if (!exists) {
-      return [...base, { ano: selectedYear, mes: selectedMonth }].sort((a, b) =>
-        a.ano !== b.ano ? a.ano - b.ano : a.mes - b.mes
-      );
+  // Lista de competências rápidas disponíveis (Jun/2025 a Nov/2026 + importadas + mês selecionado)
+  const [customCompetencias, setCustomCompetencias] = useState<Array<{ ano: number; mes: number }>>(() => {
+    try {
+      const raw = localStorage.getItem('central156_custom_competencias_v1');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
     }
-    return base;
-  }, [selectedYear, selectedMonth]);
+  });
+
+  const registerCompetencias = useCallback((comps: Array<{ ano: number; mes: number }>) => {
+    setCustomCompetencias(prev => {
+      const map = new Map<string, { ano: number; mes: number }>();
+      for (const c of prev) map.set(`${c.ano}-${c.mes}`, c);
+      let added = false;
+      for (const c of comps) {
+        const key = `${c.ano}-${c.mes}`;
+        if (!map.has(key)) {
+          map.set(key, c);
+          added = true;
+        }
+      }
+      if (!added) return prev;
+      const next = Array.from(map.values());
+      try {
+        localStorage.setItem('central156_custom_competencias_v1', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
+
+  const quickCompetencias = useMemo(() => {
+    const map = new Map<string, { ano: number; mes: number }>();
+    for (const c of getAvailableSeedCompetencias()) map.set(`${c.ano}-${c.mes}`, c);
+    for (const c of customCompetencias) map.set(`${c.ano}-${c.mes}`, c);
+    map.set(`${selectedYear}-${selectedMonth}`, { ano: selectedYear, mes: selectedMonth });
+    return Array.from(map.values()).sort((a, b) =>
+      a.ano !== b.ano ? a.ano - b.ano : a.mes - b.mes
+    );
+  }, [selectedYear, selectedMonth, customCompetencias]);
 
   // Carrega os KPIs APENAS do mês selecionado (Server-Side Filtering + In-Memory Cache)
   const loadSelectedMonth = useCallback(
@@ -359,6 +404,45 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOper
   useEffect(() => {
     loadSelectedMonth(selectedYear, selectedMonth);
   }, [selectedYear, selectedMonth, loadSelectedMonth]);
+
+  const autoSyncedMonthsRef = useRef<Set<string>>(new Set());
+
+  // Sincroniza registros da aba Indicadores (Excel ou Manual) com todo o restante do projeto
+  // (Gestão de Equipe, Dashboard, Ficha do Colaborador, Avaliação 90°, PDI 360° e Pendências)
+  const syncRecordsToProject = useCallback(
+    async (
+      records: MonthlyKpiRecord[],
+      options?: { mode?: ImportMode; affectedCompetencias?: Array<{ ano: number; mes: number }>; syncStatus?: boolean }
+    ) => {
+      if (!records || (records.length === 0 && options?.mode !== 'replace')) return;
+      const { updatedOperators, changedOperators } = mergeMonthlyRecordsIntoOperators(
+        operators,
+        records,
+        options
+      );
+      if (changedOperators.length === 0) return;
+
+      if (changedOperators.length === 1 && onSaveOperator) {
+        await onSaveOperator(changedOperators[0]);
+      } else if (onUpdate) {
+        await onUpdate(updatedOperators);
+      } else if (onSaveOperator) {
+        for (const op of changedOperators) {
+          await onSaveOperator(op);
+        }
+      }
+    },
+    [operators, onSaveOperator, onUpdate]
+  );
+
+  // Auto-sincronização inicial ao abrir uma competência que possua dados ainda não refletidos em Equipe/KPIs
+  useEffect(() => {
+    if (!isAdmin || isLoadingMonth || monthRecords.length === 0 || operators.length === 0) return;
+    const compKey = getCompetenciaKey(selectedYear, selectedMonth);
+    if (autoSyncedMonthsRef.current.has(compKey)) return;
+    autoSyncedMonthsRef.current.add(compKey);
+    syncRecordsToProject(monthRecords, { syncStatus: false });
+  }, [isAdmin, isLoadingMonth, monthRecords, operators.length, selectedYear, selectedMonth, syncRecordsToProject]);
 
   // Filtros dos gráficos comparativos (5 operadores por vez, igual Qualidade)
   const [filterQualidade, setFilterQualidade] = useState<'best' | 'worst'>('best');
@@ -405,7 +489,7 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOper
     setSearchParams({});
   };
 
-  // Mapa rápido de fotos/cadastros existentes por matrícula e por chave canônica
+  // Mapa rápido de fotos/cadastros existentes por matrícula, chave canônica e nome normalizado
   const operatorAvatarMap = useMemo(() => {
     const map = new Map<string, Operator>();
     for (const op of operators) {
@@ -414,6 +498,10 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOper
       }
       const canonical = resolveCanonicalOperator(op.name, op.registration);
       map.set(canonical.operador_chave, op);
+      const normName = stripAccents(String(op.name || '')).toLowerCase().trim();
+      if (normName && !map.has(`name:${normName}`)) {
+        map.set(`name:${normName}`, op);
+      }
     }
     return map;
   }, [operators]);
@@ -431,9 +519,11 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOper
       (selectedYear === 2026 && selectedMonth === 11);
 
     return monthRecords.map(rec => {
+      const normName = stripAccents(String(rec.operador_nome || '')).toLowerCase().trim();
       const linkedOp =
         (rec.matricula ? operatorAvatarMap.get(String(rec.matricula).trim()) : undefined) ||
-        operatorAvatarMap.get(rec.operador_chave);
+        operatorAvatarMap.get(rec.operador_chave) ||
+        (normName ? operatorAvatarMap.get(`name:${normName}`) : undefined);
       const hasTma = !!(rec.tma && rec.tma !== '00:00:00');
       const tmaSec = rec.tma_segundos ?? (hasTma ? tmaToSeconds(rec.tma) : null);
       const hasNps = rec.nps !== null && rec.nps !== undefined;
@@ -451,6 +541,7 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOper
         ...rec,
         status_mes: effectiveStatus,
         photoUrl: linkedOp?.photoUrl,
+        linkedRegistration: linkedOp?.registration,
         shortName: rec.operador_nome.split(' ')[0],
         avgNps: hasNps ? Number(rec.nps) : null,
         avgMonitoria: hasMonitoria ? Number(rec.monitoria) : null,
@@ -590,35 +681,22 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOper
     });
   }, [tableOperatorsData, debouncedSearch, selectedStatusFilter, sortColumn, sortDirection]);
 
-  // Sincroniza o status Ativo/Inativo do Snapshot Mensal com a Gestão de Equipe (operators)
-  const syncOperatorStatusWithTeam = useCallback(
-    (record: MonthlyKpiRecord) => {
-      if (!onSaveOperator) return;
-      const linkedOp =
-        (record.matricula ? operatorAvatarMap.get(String(record.matricula).trim()) : undefined) ||
-        operatorAvatarMap.get(record.operador_chave);
-      if (!linkedOp) return;
-
-      const shouldBeActive = record.status_mes === 'Ativo';
-      if ((linkedOp.active !== false) !== shouldBeActive) {
-        onSaveOperator({ ...linkedOp, active: shouldBeActive });
-      }
-    },
-    [onSaveOperator, operatorAvatarMap]
-  );
-
-  // Handlers de CRUD Mensal
+  // Handlers de CRUD Mensal (Sincronizando automaticamente com Equipe, Dashboard, Ficha, Avaliação 90°, PDI e Pendências)
   const handleSaveOperatorInMonth = async (record: MonthlyKpiRecord): Promise<{ error: string | null }> => {
-    const { error } = await saveSingleMonthlyKpi(supabase, record);
+    const { data: savedRecord, error } = await saveSingleMonthlyKpi(supabase, record);
     if (error) {
       setToast({ type: 'error', message: `Erro ao salvar: ${error}` });
       return { error };
     }
-    syncOperatorStatusWithTeam(record);
+
+    const recordToSync = savedRecord || record;
+    registerCompetencias([{ ano: recordToSync.ano, mes: recordToSync.mes }]);
+    await syncRecordsToProject([recordToSync]);
     await loadSelectedMonth(selectedYear, selectedMonth, true);
+
     setToast({
       type: 'success',
-      message: `Indicadores e status de "${record.operador_nome}" salvos em ${getCompetenciaLabel(selectedYear, selectedMonth)} e sincronizados com a Gestão de Equipe!`
+      message: `Indicadores e cadastro de "${recordToSync.operador_nome}" salvos em ${getCompetenciaLabel(selectedYear, selectedMonth)} e sincronizados com todo o sistema!`
     });
     return { error: null };
   };
@@ -645,12 +723,22 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOper
       return;
     }
 
+    const opWithoutMonth = removeMonthFromOperatorKpis(
+      operators,
+      selectedYear,
+      selectedMonth,
+      deletingRecord
+    );
+    if (opWithoutMonth && onSaveOperator) {
+      await onSaveOperator(opWithoutMonth);
+    }
+
     const deletedName = deletingRecord.operador_nome;
     setDeletingRecord(null);
     await loadSelectedMonth(selectedYear, selectedMonth, true);
     setToast({
       type: 'success',
-      message: `"${deletedName}" foi removido apenas de ${getCompetenciaLabel(selectedYear, selectedMonth)} (demais meses preservados).`
+      message: `"${deletedName}" foi removido apenas de ${getCompetenciaLabel(selectedYear, selectedMonth)} (sincronizado com Ficha e Avaliação; demais meses preservados).`
     });
   };
 
@@ -1233,7 +1321,7 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOper
                                 setHistoryTarget({
                                   operadorChave: op.operador_chave,
                                   operadorNome: op.operador_nome,
-                                  matricula: op.matricula
+                                  matricula: op.linkedRegistration || op.matricula
                                 })
                               }
                               className="flex items-center gap-3 cursor-pointer"
@@ -1358,7 +1446,7 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOper
                                   setHistoryTarget({
                                     operadorChave: op.operador_chave,
                                     operadorNome: op.operador_nome,
-                                    matricula: op.matricula
+                                    matricula: op.linkedRegistration || op.matricula
                                   })
                                 }
                                 className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"
@@ -1392,12 +1480,12 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOper
                                 </>
                               )}
 
-                              {op.matricula && operatorAvatarMap.has(String(op.matricula).trim()) && (
+                              {(op.linkedRegistration || (op.matricula && operatorAvatarMap.has(String(op.matricula).trim()))) && (
                                 <button
                                   type="button"
-                                  onClick={() => navigate(`/operator/${op.matricula}`)}
+                                  onClick={() => navigate(`/operator/${op.linkedRegistration || op.matricula}`)}
                                   className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
-                                  title={`Abrir ficha cadastral completa (#${op.matricula})`}
+                                  title={`Abrir ficha cadastral completa (#${op.linkedRegistration || op.matricula})`}
                                 >
                                   <ChevronRight size={18} />
                                 </button>
@@ -1588,8 +1676,17 @@ const Indicators: React.FC<IndicatorsProps> = ({ operators, userRole, onSaveOper
         supabase={supabase}
         currentAno={selectedYear}
         currentMes={selectedMonth}
-        onImportSuccess={(importedCompetencias, msg) => {
-          setToast({ type: 'success', message: msg });
+        onImportSuccess={async (importedCompetencias, msg, importedRecords, importMode) => {
+          if (importedCompetencias.length > 0) {
+            registerCompetencias(importedCompetencias);
+          }
+          if (importedRecords && (importedRecords.length > 0 || importMode === 'replace')) {
+            await syncRecordsToProject(importedRecords, {
+              mode: importMode,
+              affectedCompetencias: importedCompetencias
+            });
+          }
+          setToast({ type: 'success', message: `${msg} Todo o projeto foi sincronizado.` });
           if (importedCompetencias.length > 0) {
             const last = importedCompetencias[importedCompetencias.length - 1];
             setSelectedYear(last.ano);

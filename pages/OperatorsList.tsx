@@ -20,7 +20,8 @@ import { generateSystemEmail } from '../utils';
 import {
   fetchMonthKpis,
   saveSingleMonthlyKpi,
-  resolveCanonicalOperator
+  resolveCanonicalOperator,
+  MONTHLY_KPIS_UPDATED_EVENT
 } from '../services/monthlyKpiService';
 import { MonthlyOperatorStatus } from '../types/monthlyKpi';
 
@@ -39,6 +40,7 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
   const [filterClassification, setFilterClassification] = useState<'all' | OperatorClassification>('all');
   const [filterStatus, setFilterStatus] = useState<'active' | 'all' | 'inactive'>('all');
   const [snapshotStatusMap, setSnapshotStatusMap] = useState<Record<string, MonthlyOperatorStatus>>({});
+  const [kpiRefreshTick, setKpiRefreshTick] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [selectedOperatorForPassword, setSelectedOperatorForPassword] = useState<Operator | null>(null);
@@ -56,6 +58,13 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
   // New Password State (Only for creation)
   const [newPassword, setNewPassword] = useState('');
 
+  // Escuta alterações feitas na aba Indicadores para manter badges sincronizadas
+  useEffect(() => {
+    const onKpisUpdated = () => setKpiRefreshTick(t => t + 1);
+    window.addEventListener(MONTHLY_KPIS_UPDATED_EVENT, onKpisUpdated);
+    return () => window.removeEventListener(MONTHLY_KPIS_UPDATED_EVENT, onKpisUpdated);
+  }, []);
+
   // Sincroniza status com o Snapshot Mensal de Indicadores do mês corrente
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +72,7 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
 
-    fetchMonthKpis(supabase, currentYear, currentMonth).then(({ data }) => {
+    fetchMonthKpis(supabase, currentYear, currentMonth, { forceRefresh: kpiRefreshTick > 0 }).then(({ data }) => {
       if (cancelled || !data) return;
       const statusMap: Record<string, MonthlyOperatorStatus> = {};
       for (const rec of data) {
@@ -78,7 +87,7 @@ const OperatorsList: React.FC<OperatorsListProps> = ({ operators, onUpdate, onSa
     return () => {
       cancelled = true;
     };
-  }, [supabase, operators]);
+  }, [supabase, operators, kpiRefreshTick]);
 
   const getEffectiveOperatorActive = (op: Operator): boolean => {
     const cleanReg = String(op.registration).trim();

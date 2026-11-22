@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { SupabaseClient, User } from '@supabase/supabase-js';
 import { Operator, TeamGoals } from './types';
 import { INITIAL_OPERATORS, GOALS as INITIAL_GOALS } from './constants';
+import { invalidateMonthlyCache } from './services/monthlyKpiService';
 
 const LIGHT_COLS = 'user_id, registration, name, admissionDate, role, linkType, costCenter, classification, workMode, birthDate, photoUrl, active, kpis, feedbacks';
 const ULTRA_LIGHT_COLS = 'user_id, registration, name, admissionDate, role, linkType, costCenter, classification, workMode, birthDate, active, kpis, feedbacks';
@@ -211,6 +212,10 @@ export const useOperatorsData = (supabase: SupabaseClient | null, user: User | n
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'operators' }, handleInsertOrUpdate)
                 .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'operators' }, handleInsertOrUpdate)
                 .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'operators' }, handleDelete)
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'monthly_kpis' }, (payload: any) => {
+                    const rec = payload?.new || payload?.old;
+                    invalidateMonthlyCache(rec?.ano, rec?.mes, rec?.operador_chave);
+                })
                 .subscribe();
         }
 

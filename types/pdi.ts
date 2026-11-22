@@ -74,6 +74,7 @@ export interface PDIAction {
   responsavel: string; // 'Operador' | 'Supervisor' | 'Qualidade' | 'Instrutor'
   data_inicio: string; // YYYY-MM-DD
   data_limite: string; // YYYY-MM-DD
+  prazo?: string; // YYYY-MM-DD (compatibilidade)
   status: PDIActionStatus;
   evidencia?: string;
   comentario?: string;

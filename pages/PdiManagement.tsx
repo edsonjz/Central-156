@@ -248,8 +248,10 @@ const PdiManagement: React.FC<PdiManagementProps> = ({ operators }) => {
       tipo_70_20_10: newActionCategory,
       descricao: newActionDesc.trim(),
       responsavel: newActionResp.trim() || 'Operador',
+      data_inicio: new Date().toISOString().split('T')[0],
+      data_limite: newActionDeadline || selectedPdiForDetail.data_fim,
       prazo: newActionDeadline || undefined,
-      status: 'Não iniciada'
+      status: 'Não iniciado'
     };
 
     const updatedAcoes = [...(selectedPdiForDetail.acoes || []), newAction];
@@ -268,7 +270,7 @@ const PdiManagement: React.FC<PdiManagementProps> = ({ operators }) => {
     setEditActionDesc(act.descricao);
     setEditActionCat(act.tipo_70_20_10);
     setEditActionResp(act.responsavel || 'Operador');
-    setEditActionDeadline(act.prazo || '');
+    setEditActionDeadline(act.prazo || act.data_limite || '');
   };
 
   const handleSaveActionEdit = async (actionId: string) => {
@@ -285,6 +287,7 @@ const PdiManagement: React.FC<PdiManagementProps> = ({ operators }) => {
           descricao: editActionDesc.trim(),
           tipo_70_20_10: editActionCat,
           responsavel: editActionResp.trim() || 'Operador',
+          data_limite: editActionDeadline || a.data_limite,
           prazo: editActionDeadline || undefined
         };
       }

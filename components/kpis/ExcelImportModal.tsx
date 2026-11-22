@@ -13,7 +13,7 @@ import {
   Layers
 } from 'lucide-react';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { ParsedSheetPreview, ImportMode } from '../../types/monthlyKpi';
+import { ParsedSheetPreview, ImportMode, MonthlyKpiRecord } from '../../types/monthlyKpi';
 import {
   parseExcelFileForPreview,
   batchUpsertMonthKpis,
@@ -28,7 +28,12 @@ interface ExcelImportModalProps {
   supabase: SupabaseClient | null;
   currentAno: number;
   currentMes: number;
-  onImportSuccess: (importedCompetencias: Array<{ ano: number; mes: number }>, message: string) => void;
+  onImportSuccess: (
+    importedCompetencias: Array<{ ano: number; mes: number }>,
+    message: string,
+    importedRecords?: MonthlyKpiRecord[],
+    mode?: ImportMode
+  ) => void;
 }
 
 export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
@@ -112,6 +117,7 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
 
     let totalImported = 0;
     const importedCompetencias: Array<{ ano: number; mes: number }> = [];
+    const importedRecords: MonthlyKpiRecord[] = [];
 
     for (let i = 0; i < selectedSheets.length; i++) {
       const sheet = selectedSheets[i];
@@ -134,13 +140,16 @@ export const ExcelImportModal: React.FC<ExcelImportModalProps> = ({
 
       totalImported += count;
       importedCompetencias.push({ ano: sheet.ano, mes: sheet.mes });
+      importedRecords.push(...sheet.records);
     }
 
     setIsSaving(false);
     setSaveProgress(null);
     onImportSuccess(
       importedCompetencias,
-      `Importação concluída: ${totalImported} registro(s) gravados em ${selectedSheets.length} competência(s) mensal(is)!`
+      `Importação concluída: ${totalImported} registro(s) gravados em ${selectedSheets.length} competência(s) mensal(is)!`,
+      importedRecords,
+      importMode
     );
     onClose();
   };

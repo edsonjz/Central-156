@@ -296,9 +296,29 @@ export class PdiService {
     actionId: string,
     updates: Partial<PDIAction>
   ): Promise<PDI | null> {
-    const list = loadFromStorage();
-    const pdi = list.find(p => p.id === pdiId);
-    if (!pdi) return null;
+    let list = loadFromStorage();
+    let pdi = list.find(p => p.id === pdiId) || null;
+
+    // Se estiver em outra máquina sem cache local, busca do Supabase
+    if (!pdi && supabase) {
+      list = await this.getAllPdis(supabase);
+      pdi = list.find(p => p.id === pdiId) || null;
+    }
+
+    if (!pdi) {
+      if (supabase) {
+        try {
+          const payload: any = { ...updates };
+          if (updates.status === 'Concluído') {
+            payload.data_conclusao = new Date().toISOString().split('T')[0];
+          }
+          await supabase.from('pdi_acoes').update(payload).eq('id', actionId);
+        } catch (e) {
+          console.warn('[PdiService] Erro ao atualizar ação diretamente no Supabase:', e);
+        }
+      }
+      return null;
+    }
 
     const action = pdi.acoes.find(a => a.id === actionId);
     if (!action) return null;
@@ -316,7 +336,7 @@ export class PdiService {
     if (supabase) {
       try {
         await supabase.from('pdi_acoes').update(action).eq('id', actionId);
-        await supabase.from('pdis').update({ progresso: pdi.progresso, status: pdi.status }).eq('id', pdiId);
+        await supabase.from('pdis').update({ progresso: pdi.progresso, status: pdi.status, updated_at: pdi.updated_at }).eq('id', pdiId);
       } catch (e) {
         console.warn('[PdiService] Erro ao sincronizar update de ação com Supabase:', e);
       }
@@ -326,15 +346,28 @@ export class PdiService {
     return pdi;
   }
 
+  // Alias compatível com PdiManagement
+  static async updateActionStatus(
+    supabase: SupabaseClient | null,
+    pdiId: string,
+    actionId: string,
+    status: PDIAction['status']
+  ): Promise<PDI | null> {
+    return this.updateAction(supabase, pdiId, actionId, { status });
+  }
+
   // Adiciona Feedback ao PDI
   static async addFeedback(
     supabase: SupabaseClient | null,
     pdiId: string,
     feedbackData: Omit<PDIFeedback, 'id' | 'pdi_id' | 'data'>
   ): Promise<PDI | null> {
-    const list = loadFromStorage();
-    const pdi = list.find(p => p.id === pdiId);
-    if (!pdi) return null;
+    let list = loadFromStorage();
+    let pdi = list.find(p => p.id === pdiId) || null;
+    if (!pdi && supabase) {
+      list = await this.getAllPdis(supabase);
+      pdi = list.find(p => p.id === pdiId) || null;
+    }
 
     const newFeedback: PDIFeedback = {
       ...feedbackData,
@@ -343,8 +376,11 @@ export class PdiService {
       data: new Date().toISOString()
     };
 
-    pdi.feedbacks.unshift(newFeedback);
-    pdi.updated_at = new Date().toISOString();
+    if (pdi) {
+      pdi.feedbacks.unshift(newFeedback);
+      pdi.updated_at = new Date().toISOString();
+      saveToStorage(list);
+    }
 
     if (supabase) {
       try {
@@ -354,7 +390,6 @@ export class PdiService {
       }
     }
 
-    saveToStorage(list);
     return pdi;
   }
 
@@ -399,16 +434,23 @@ export class PdiService {
     resultadoFinal: PDIResult,
     comentario: string
   ): Promise<PDI | null> {
-    const list = loadFromStorage();
-    const pdi = list.find(p => p.id === pdiId);
-    if (!pdi) return null;
+    let list = loadFromStorage();
+    let pdi = list.find(p => p.id === pdiId) || null;
+    if (!pdi && supabase) {
+      list = await this.getAllPdis(supabase);
+      pdi = list.find(p => p.id === pdiId) || null;
+    }
 
-    pdi.status = 'Concluído';
-    pdi.progresso = 100;
-    pdi.resultado_final = resultadoFinal;
-    pdi.avaliacao_final_comentario = comentario;
-    pdi.data_encerramento = new Date().toISOString();
-    pdi.updated_at = new Date().toISOString();
+    const now = new Date().toISOString();
+    if (pdi) {
+      pdi.status = 'Concluído';
+      pdi.progresso = 100;
+      pdi.resultado_final = resultadoFinal;
+      pdi.avaliacao_final_comentario = comentario;
+      pdi.data_encerramento = now;
+      pdi.updated_at = now;
+      saveToStorage(list);
+    }
 
     if (supabase) {
       try {
@@ -417,15 +459,14 @@ export class PdiService {
           progresso: 100,
           resultado_final: resultadoFinal,
           avaliacao_final_comentario: comentario,
-          data_encerramento: pdi.data_encerramento,
-          updated_at: pdi.updated_at
+          data_encerramento: now,
+          updated_at: now
         }).eq('id', pdiId);
       } catch (e) {
         console.warn('[PdiService] Erro ao finalizar PDI no Supabase:', e);
       }
     }
 
-    saveToStorage(list);
     return pdi;
   }
 
